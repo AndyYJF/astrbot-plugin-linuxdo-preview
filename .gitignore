@@ -1,0 +1,24 @@
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Build and generated artifacts
+dist/
+artifacts/
+references/
+*.egg-info/
+
+# Local working records
+task_plan.md
+findings.md
+progress.md
+
+# One-off development and production-operation helpers
+scripts/*
+!scripts/audit_project.sh
+!scripts/build_package.sh
+!scripts/setup_test_env.sh
+!scripts/validate_local.sh

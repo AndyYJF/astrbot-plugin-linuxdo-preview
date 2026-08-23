@@ -1,0 +1,5 @@
+# aiohttp is already bundled by AstrBot >= 4.26; this declaration is retained
+# so standalone plugin installers can verify the minimum version.
+aiohttp>=3.11.18
+# Used to validate, orient, resize and strip metadata from bounded post images.
+Pillow>=11.2.1
