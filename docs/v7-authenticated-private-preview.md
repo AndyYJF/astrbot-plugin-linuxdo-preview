@@ -119,6 +119,7 @@ docker compose -f sidecar/compose.example.yml --profile bootstrap \
 noVNC 只绑定 `127.0.0.1:6080`。远程主机应通过 SSH 隧道访问
 `http://127.0.0.1:6080/vnc.html`；只完成 CF 校验，不在 sidecar 中登录 Linux.do。容器使用
 同一浏览器上下文发送固定 JSON，成功后写出 `device-response.json`，不在日志打印设备码。
+镜像基于固定 Python slim，并只安装与 Python 包同版本的 Chromium；不下载 Firefox/WebKit。
 
 把响应文件下载回同一授权会话目录并记录：
 
