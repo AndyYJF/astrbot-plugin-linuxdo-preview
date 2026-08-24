@@ -320,6 +320,7 @@ def _write_plugin_secret(
         "site": SITE,
         "user_api_key": key,
         "user_api_client_id": client_id,
+        "sidecar_token": secrets.token_urlsafe(32),
     }
     _write_private(
         output_file,

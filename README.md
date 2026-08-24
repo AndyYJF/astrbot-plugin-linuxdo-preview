@@ -2,8 +2,9 @@
 
 面向 QQ 群聊和私聊消息的 AstrBot 插件。用户发送
 `linux.do/t/.../<topic_id>` 或 `linux.do/raw/<topic_id>` 链接后，插件只读取主题首帖。
-公开帖优先返回接近 LINUX DO 原生前端的长图；受限帖仅允许显式绑定的 QQ 私聊通过
-Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本转发返回。
+公开帖优先返回接近 LINUX DO 原生前端的长图；受限帖仅允许显式绑定的 QQ 发送者通过
+Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本转发返回。群聊授权默认关闭，
+只有开发者同时开启群聊开关并在运行配置中填写发送者 allowlist 时才可触发。
 
 ## 当前能力
 
@@ -21,12 +22,12 @@ Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本�
 - 成功缓存、同会话同帖去重、并发/响应体/正文长度限制；私聊按发送者隔离去重。
 - Reader 默认硬限制为 12 请求/分钟，低于本次实测公开窗口的 20 RPM。
 - 登录通道默认关闭，且必须同时启用、配置只读 secret 文件并显式填写 QQ sender allowlist；
-  群聊永远不会使用登录授权。
-- 获准的 QQ 私聊每条消息最多处理一个链接，登录通道独立限制为 3 请求/分钟，认证缓存
-  按 QQ 主体隔离且只保存在内存中。
-- 授权私聊直接请求 Linux.do 固定首帖 JSON，不会先把帖子交给 Jina 判断，也不会把受限
+  群聊默认不会使用登录授权。开发测试可临时允许 allowlist 中的发送者在任意群触发。
+- 获准的 QQ 消息每次最多处理一个链接，登录通道独立限制为 3 请求/分钟，认证缓存
+  按“QQ + 会话/群”隔离且只保存在内存中。
+- 授权消息直接请求 Linux.do 固定首帖 JSON，不会先把帖子交给 Jina 判断，也不会把受限
   正文交给现有 T2I。aiocqhttp 返回“授权状态 + 标题/正文 + 可安全下载的独立图片”合并转发。
-- 未绑定的私聊和所有群聊仍按公开通道处理；遇到受限帖只返回权限提示。
+- 未绑定的发送者和未开启群聊授权时的群消息仍按公开通道处理；遇到受限帖只返回权限提示。
 
 用户链接里的 `/1`、`/11` 等浏览楼层后缀不会改变输出范围。插件只提取数字 topic ID，
 再构造固定主题 URL，最终仍只读取 `#post_1 .cooked`。
@@ -45,12 +46,14 @@ QQ 消息中的 Linux.do 链接
      若 T2I 失败：状态提示 + 标题/正文纯文本 + 同一批独立清晰图
 ```
 
-绑定私聊的授权链路为：
+绑定 QQ 的授权链路为：
 
 ```text
-QQ 私聊中的 Linux.do 链接
+绑定发送者在 QQ 私聊或显式开启的测试群中发送 Linux.do 链接
   -> 固定 https://linux.do/t/<数字ID>/posts.json?post_number=1&include_raw=true
      （只读 User API Key；禁止重定向；只接受楼主首帖）
+  -> 普通 HTTP 若遇到 CF challenge，转到固定 Docker 内网 sidecar
+     （只接受数字 topic ID；浏览器只保留 CF Cookie，仍用只读 User API Key）
   -> 插件本地清洗正文；图片只允许 Linux.do/LDStatic HTTPS
   -> QQ 合并转发（授权状态 + 标题/首帖纯文本 + 已安全取得的独立图片）
 ```
@@ -78,7 +81,8 @@ QQ 私聊中的 Linux.do 链接
   "reader_timeout_seconds": 45,
   "reader_requests_per_minute": 12,
   "authenticated_enabled": false,
-  "authenticated_private_sender_allowlist": [],
+  "authenticated_sender_allowlist": [],
+  "authenticated_allow_group_messages": false,
   "authenticated_secret_file": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
   "authenticated_timeout_seconds": 20,
   "authenticated_requests_per_minute": 3,
@@ -101,7 +105,7 @@ QQ 私聊中的 Linux.do 链接
 该渲染端点。`render_timeout_seconds` 会在 T2I 不响应时终止本次渲染，并自动使用上述纯文本合并转发回退。
 
 认证配置的 secret 格式、授权边界、Cloudflare 兼容性和启用前检查见
-[V7 受限帖私聊预览](docs/v7-authenticated-private-preview.md)。当前生产网络的普通 HTTP
+[V7 受限帖绑定 QQ 预览](docs/v7-authenticated-private-preview.md)。当前生产网络的普通 HTTP
 请求会收到 Cloudflare challenge，因此在 User API Key 实际探针或自托管浏览器侧车通过前，
 生产配置应保持 `authenticated_enabled: false`。不要向 Issue、聊天或普通配置粘贴 Cookie。
 
@@ -150,5 +154,5 @@ https://linux.do/t/topic/2045356
 [Markdown 跳转链接显示修复](docs/markdown-link-fix.md)。
 合并转发与独立清晰图片的节点布局见
 [V4 合并转发图片设计](docs/v4-forward-images.md)，T2I 失败回退见
-[V6 T2I 纯文本回退设计](docs/v6-t2i-text-fallback.md)，授权私聊实现见
-[V7 受限帖私聊预览](docs/v7-authenticated-private-preview.md)。
+[V6 T2I 纯文本回退设计](docs/v6-t2i-text-fallback.md)，绑定 QQ 授权实现见
+[V7 受限帖绑定 QQ 预览](docs/v7-authenticated-private-preview.md)。

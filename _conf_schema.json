@@ -44,16 +44,22 @@
     "hint": "公开通道实测窗口为 20 RPM；默认留出余量，超限时快速失败。"
   },
   "authenticated_enabled": {
-    "description": "启用私聊只读登录通道",
+    "description": "启用绑定 QQ 的只读登录通道",
     "type": "bool",
     "default": false,
-    "hint": "只有下方 QQ sender allowlist 中的私聊可触发；群聊永远不会使用登录凭据。"
+    "hint": "只有下方 QQ sender allowlist 中的发送者可触发；群聊还必须单独开启测试开关。"
   },
-  "authenticated_private_sender_allowlist": {
-    "description": "允许登录抓取的私聊 QQ sender_id",
+  "authenticated_sender_allowlist": {
+    "description": "允许登录抓取的 QQ sender_id",
     "type": "list",
     "default": [],
     "hint": "必须显式填写；留空时即使启用登录通道也不会向任何 QQ 会话返回受限正文。"
+  },
+  "authenticated_allow_group_messages": {
+    "description": "允许绑定 QQ 在群聊触发登录抓取",
+    "type": "bool",
+    "default": false,
+    "hint": "仅 allowlist 中的发送者可触发；正文会对所在群可见。开发测试后应关闭。"
   },
   "authenticated_secret_file": {
     "description": "只读 User API Key secret 文件",
@@ -71,7 +77,7 @@
     "description": "登录通道每分钟最大请求数",
     "type": "int",
     "default": 3,
-    "hint": "范围 1-6；授权私聊每条消息最多处理一个链接。"
+    "hint": "范围 1-6；授权 QQ 消息每次最多处理一个链接。"
   },
   "authenticated_cache_ttl_seconds": {
     "description": "登录正文内存缓存秒数",

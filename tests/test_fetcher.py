@@ -206,3 +206,44 @@ async def test_authenticated_rate_limit_fails_fast():
         await fetcher._acquire_authenticated_slot()
     assert captured.value.code is FetchErrorCode.RATE_LIMITED
     await fetcher.close()
+
+
+async def test_authenticated_fetch_falls_back_to_fixed_sidecar_on_cf(monkeypatch):
+    settings = Settings(
+        authenticated_enabled=True,
+        authenticated_secret_file="/unused/test-secret.json",
+    )
+    fetcher = LinuxDoFetcher(settings)
+    monkeypatch.setattr(
+        "linuxdo_preview.fetcher.load_user_api_credentials",
+        lambda _path: UserApiCredentials(
+            "A" * 40,
+            "client-id-123456",
+            "s" * 43,
+        ),
+    )
+
+    async def fake_request(*_args, **_kwargs):
+        return 403, {"cf-mitigated": "challenge"}, "challenge"
+
+    captured = {}
+
+    async def fake_sidecar(ref, token):
+        captured.update(topic_id=ref.topic_id, token=token)
+        return (
+            200,
+            {"content-type": "application/json"},
+            '{"posts":[{"post_number":1,"topic_id":123,'
+            '"topic_title":"侧车标题","raw":"侧车正文"}]}',
+        )
+
+    monkeypatch.setattr(fetcher, "_request", fake_request)
+    monkeypatch.setattr(fetcher, "_request_sidecar", fake_sidecar)
+    fetched = await fetcher.fetch_authenticated_first_post(
+        TopicRef(123, "https://linux.do/t/topic/123")
+    )
+
+    assert captured == {"topic_id": 123, "token": "s" * 43}
+    assert fetched.title == "侧车标题"
+    assert fetched.content == "侧车正文"
+    await fetcher.close()

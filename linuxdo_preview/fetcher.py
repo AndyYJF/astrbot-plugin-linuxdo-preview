@@ -41,6 +41,7 @@ _AUTHENTICATED_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "AstrBot-LinuxDo-Preview/0.7 (read-only)",
 }
+_AUTHENTICATED_SIDECAR_URL = "http://linuxdo-auth-sidecar:8787/v1/topic"
 
 
 def is_cloudflare_challenge(status: int, headers: Mapping[str, str], body: str) -> bool:
@@ -197,10 +198,25 @@ class LinuxDoFetcher:
             allow_redirects=False,
         )
         if is_cloudflare_challenge(status, headers, body):
-            raise FetchError(
-                FetchErrorCode.CHALLENGE,
-                "authenticated endpoint returned challenge",
+            if not credentials.sidecar_token:
+                raise FetchError(
+                    FetchErrorCode.CHALLENGE,
+                    "authenticated endpoint returned challenge",
+                )
+            status, headers, body = await self._request_sidecar(
+                ref,
+                credentials.sidecar_token,
             )
+            if status == 409:
+                raise FetchError(
+                    FetchErrorCode.CHALLENGE,
+                    "sidecar browser clearance is unavailable",
+                )
+            if status == 401:
+                raise FetchError(
+                    FetchErrorCode.AUTH_UNAVAILABLE,
+                    "sidecar authentication failed",
+                )
         if status == 401:
             raise FetchError(
                 FetchErrorCode.AUTH_INVALID,
@@ -227,6 +243,53 @@ class LinuxDoFetcher:
                 f"authenticated endpoint HTTP {status}",
             )
         return parse_authenticated_topic_response(body, ref.topic_id)
+
+    async def _request_sidecar(
+        self,
+        ref: TopicRef,
+        sidecar_token: str,
+    ) -> tuple[int, dict[str, str], str]:
+        session = self._get_session()
+        timeout = aiohttp.ClientTimeout(
+            total=self._settings.authenticated_timeout_seconds
+        )
+        try:
+            async with self._semaphore:
+                async with session.post(
+                    _AUTHENTICATED_SIDECAR_URL,
+                    json={"topic_id": ref.topic_id},
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {sidecar_token}",
+                    },
+                    timeout=timeout,
+                    allow_redirects=False,
+                ) as response:
+                    payload = await response.content.read(
+                        self._settings.max_response_bytes + 1
+                    )
+                    if len(payload) > self._settings.max_response_bytes:
+                        raise FetchError(
+                            FetchErrorCode.TOO_LARGE,
+                            "sidecar response exceeded byte limit",
+                        )
+                    return (
+                        response.status,
+                        {key.lower(): value for key, value in response.headers.items()},
+                        payload.decode("utf-8", errors="replace"),
+                    )
+        except FetchError:
+            raise
+        except TimeoutError as exc:
+            raise FetchError(
+                FetchErrorCode.NETWORK,
+                "sidecar request timed out",
+            ) from exc
+        except aiohttp.ClientError as exc:
+            raise FetchError(
+                FetchErrorCode.AUTH_UNAVAILABLE,
+                "sidecar request failed",
+            ) from exc
 
     async def _fetch_reader(self, ref: TopicRef) -> FetchedTopic:
         await self._acquire_reader_slot()

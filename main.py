@@ -29,7 +29,7 @@ from .linuxdo_preview.urls import extract_topic_refs
 @register(
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
-    "将 QQ 中的 LINUX DO 首帖渲染为长图，支持私聊绑定的只读登录通道",
+    "将 QQ 中的 LINUX DO 首帖渲染为长图，支持绑定 QQ 的只读登录通道",
     "0.7.0",
 )
 class LinuxDoPreviewPlugin(Star):
@@ -55,12 +55,13 @@ class LinuxDoPreviewPlugin(Star):
     async def initialize(self) -> None:
         logger.info(
             "LINUX DO preview initialized: mode=%s, proxy=%s, groups=%s, "
-            "authenticated=%s, authenticated_private_senders=%s",
+            "authenticated=%s, authenticated_senders=%s, auth_groups=%s",
             self.settings.fetch_mode,
             "configured" if self.settings.proxy_url else "none",
             len(self.settings.group_allowlist),
             "enabled" if self.settings.authenticated_enabled else "disabled",
-            len(self.settings.authenticated_private_sender_allowlist),
+            len(self.settings.authenticated_sender_allowlist),
+            self.settings.authenticated_allow_group_messages,
         )
 
     async def terminate(self) -> None:

@@ -10,6 +10,7 @@ from pathlib import Path
 _MAX_SECRET_BYTES = 16_384
 _CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._-]{8,128}")
 _USER_API_KEY_RE = re.compile(r"[A-Za-z0-9+/=_-]{20,512}")
+_SIDECAR_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
 
 
 class SecretLoadError(RuntimeError):
@@ -20,6 +21,7 @@ class SecretLoadError(RuntimeError):
 class UserApiCredentials:
     user_api_key: str
     user_api_client_id: str
+    sidecar_token: str = ""
 
 
 def load_user_api_credentials(secret_file: str) -> UserApiCredentials:
@@ -52,7 +54,13 @@ def load_user_api_credentials(secret_file: str) -> UserApiCredentials:
         raise SecretLoadError("user API key format is invalid")
     if not isinstance(client_id, str) or not _CLIENT_ID_RE.fullmatch(client_id):
         raise SecretLoadError("user API client ID format is invalid")
+    sidecar_token = payload.get("sidecar_token", "")
+    if not isinstance(sidecar_token, str) or (
+        sidecar_token and not _SIDECAR_TOKEN_RE.fullmatch(sidecar_token)
+    ):
+        raise SecretLoadError("sidecar token format is invalid")
     return UserApiCredentials(
         user_api_key=user_api_key,
         user_api_client_id=client_id,
+        sidecar_token=sidecar_token,
     )

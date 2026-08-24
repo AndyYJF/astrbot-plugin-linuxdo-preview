@@ -14,6 +14,7 @@ def test_loads_versioned_linuxdo_user_api_secret(tmp_path):
                 "site": "https://linux.do",
                 "user_api_key": "A" * 40,
                 "user_api_client_id": "client-id-123456",
+                "sidecar_token": "s" * 43,
             }
         ),
         encoding="utf-8",
@@ -23,6 +24,7 @@ def test_loads_versioned_linuxdo_user_api_secret(tmp_path):
 
     assert loaded.user_api_key == "A" * 40
     assert loaded.user_api_client_id == "client-id-123456"
+    assert loaded.sidecar_token == "s" * 43
 
 
 def test_rejects_relative_or_wrong_site_secret(tmp_path):

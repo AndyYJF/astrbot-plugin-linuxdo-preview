@@ -1,0 +1,62 @@
+services:
+  linuxdo-auth-sidecar:
+    build:
+      context: ..
+      dockerfile: sidecar/Dockerfile
+    container_name: linuxdo-auth-sidecar
+    restart: unless-stopped
+    init: true
+    user: pwuser
+    shm_size: 1gb
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:6080:6080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LINUXDO_SECRET_FILE: /run/secrets/astrbot_plugin_linuxdo_preview.json
+      LINUXDO_BROWSER_PROFILE_DIR: /var/lib/linuxdo-browser
+      LINUXDO_PROXY_SERVER: http://host.docker.internal:7890
+    volumes:
+      - ./runtime/browser-profile:/var/lib/linuxdo-browser
+      - /AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json:/run/secrets/astrbot_plugin_linuxdo_preview.json:ro
+    networks:
+      - astrbot
+
+  linuxdo-auth-bootstrap:
+    profiles:
+      - bootstrap
+    build:
+      context: ..
+      dockerfile: sidecar/Dockerfile
+    container_name: linuxdo-auth-bootstrap
+    restart: "no"
+    init: true
+    user: pwuser
+    shm_size: 1gb
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:6080:6080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LINUXDO_ENTRYPOINT_MODULE: sidecar.device_authorize
+      LINUXDO_DEVICE_MODE: start
+      LINUXDO_DEVICE_REQUEST_FILE: /run/bootstrap/device-request.json
+      LINUXDO_DEVICE_RESPONSE_FILE: /run/bootstrap/device-response.json
+      LINUXDO_BROWSER_PROFILE_DIR: /var/lib/linuxdo-browser
+      LINUXDO_PROXY_SERVER: http://host.docker.internal:7890
+    volumes:
+      - ./runtime/browser-profile:/var/lib/linuxdo-browser
+      - ./runtime/bootstrap:/run/bootstrap
+
+networks:
+  astrbot:
+    external: true
+    name: REPLACE_WITH_ASTRBOT_DOCKER_NETWORK

@@ -37,7 +37,8 @@ class Settings:
     reader_timeout_seconds: int = 45
     reader_requests_per_minute: int = 12
     authenticated_enabled: bool = False
-    authenticated_private_sender_allowlist: frozenset[str] = frozenset()
+    authenticated_sender_allowlist: frozenset[str] = frozenset()
+    authenticated_allow_group_messages: bool = False
     authenticated_secret_file: str = (
         "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
     )
@@ -73,13 +74,17 @@ class Settings:
         normalized_sender = str(sender_id or "").strip()
         if (
             not self.authenticated_enabled
-            or str(group_id or "").strip()
             or not normalized_sender
             or normalized_sender
-            not in self.authenticated_private_sender_allowlist
+            not in self.authenticated_sender_allowlist
         ):
             return None
-        return normalized_sender
+        normalized_group = str(group_id or "").strip()
+        if normalized_group:
+            if not self.authenticated_allow_group_messages:
+                return None
+            return f"qq:{normalized_sender}:group:{normalized_group}"
+        return f"qq:{normalized_sender}:private"
 
     @classmethod
     def from_mapping(cls, config: Mapping[str, Any] | None) -> Settings:
@@ -92,7 +97,10 @@ class Settings:
         if isinstance(raw_groups, list | tuple | set | frozenset):
             groups = {str(value).strip() for value in raw_groups if str(value).strip()}
 
-        raw_senders = data.get("authenticated_private_sender_allowlist", [])
+        raw_senders = data.get(
+            "authenticated_sender_allowlist",
+            data.get("authenticated_private_sender_allowlist", []),
+        )
         authenticated_senders: set[str] = set()
         if isinstance(raw_senders, list | tuple | set | frozenset):
             authenticated_senders = {
@@ -122,8 +130,9 @@ class Settings:
             authenticated_enabled=_as_bool(
                 data.get("authenticated_enabled"), False
             ),
-            authenticated_private_sender_allowlist=frozenset(
-                authenticated_senders
+            authenticated_sender_allowlist=frozenset(authenticated_senders),
+            authenticated_allow_group_messages=_as_bool(
+                data.get("authenticated_allow_group_messages"), False
             ),
             authenticated_secret_file=(
                 raw_secret_file
