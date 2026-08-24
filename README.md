@@ -2,7 +2,7 @@
 
 面向 QQ 群聊和私聊消息的 AstrBot 插件。用户发送公开的
 `linux.do/t/.../<topic_id>` 或 `linux.do/raw/<topic_id>` 链接后，插件读取主题页首帖，
-并返回一张接近 LINUX DO 原生前端的长图。
+并优先返回一张接近 LINUX DO 原生前端的长图。
 
 ## 当前能力
 
@@ -11,7 +11,8 @@
 - 固定 Linux.do 源站与数字 topic ID，避免 SSRF 和任意 URL 抓取。
 - 通过 Jina Reader 请求公开主题 HTML，并用 `#post_1 .cooked` 只选择楼主首帖正文。
 - 在同一次 Reader 响应中解析主题标题、分类和首帖，不需要为标题增加第二次请求。
-- aiocqhttp 成功时返回一个合并转发：首节点是 JPEG 长图，后续节点按原文顺序各放一张独立帖子原图；其他 QQ 适配器回退为单长图，错误仍返回短文本。
+- aiocqhttp 成功时返回一个合并转发：首节点是 JPEG 长图，后续节点按原文顺序各放一张独立帖子原图；其他 QQ 适配器回退为单长图。
+- T2I 超时、不可用或返回无效图片时仍只发送一个合并转发：先显示渲染失败状态，再发送标题/首帖纯文本，最后继续发送原顺序、原载荷的独立帖子图片；其他 QQ 适配器返回纯文本预览。
 - 清理 Discourse BBCode、HTML、双向文本控制符与 CQ 注入样式文本，并对所有正文进行 HTML 转义。
 - 帖子图片按原文顺序内嵌；默认最多加载 6 张，失败、超限和其余图片保留清晰占位/数量提示。
 - 图片仅接受 LINUX DO/LDStatic 的 HTTPS 地址；长图使用受限缩略 JPEG，独立节点优先保留验证后的 JPEG/PNG 原始字节，其他格式才高质量转码。
@@ -34,6 +35,7 @@ QQ 消息中的 Linux.do 链接
   -> 插件清洗正文并用受限缩略 JPEG 生成本地 HTML
   -> AstrBot 配置的 T2I 服务（公开标题、首帖文本和处理后图片）
   -> QQ 合并转发（长图 + 最多 6 张独立清晰图）
+     若 T2I 失败：状态提示 + 标题/正文纯文本 + 同一批独立清晰图
 ```
 
 - 不会把 QQ 身份、群消息全文、Cookie、账号或登录材料发送给 Reader/T2I。
@@ -71,7 +73,7 @@ QQ 消息中的 Linux.do 链接
 
 `proxy_url` 用于 Reader 和帖子图片请求。`max_images_per_topic` 可设为 `0` 完全关闭图片下载，
 有效范围为 0–12。长图由 AstrBot 的 T2I 配置生成；生产部署前必须验证 AstrBot 容器可以访问
-该渲染端点。`render_timeout_seconds` 会在 T2I 不响应时终止本次渲染并返回短错误提示。
+该渲染端点。`render_timeout_seconds` 会在 T2I 不响应时终止本次渲染，并自动使用上述纯文本合并转发回退。
 
 ## 安装
 
@@ -117,4 +119,5 @@ https://linux.do/t/topic/2045356
 [标题获取调研](docs/title-research.md)。空标签标题锚点的根因和回归覆盖见
 [Markdown 跳转链接显示修复](docs/markdown-link-fix.md)。
 合并转发与独立清晰图片的节点布局见
-[V4 合并转发图片设计](docs/v4-forward-images.md)。
+[V4 合并转发图片设计](docs/v4-forward-images.md)，T2I 失败回退见
+[V6 T2I 纯文本回退设计](docs/v6-t2i-text-fallback.md)。

@@ -4,11 +4,15 @@ import asyncio
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import Image, Node, Nodes
+from astrbot.api.message_components import Image, Node, Nodes, Plain
 from astrbot.api.star import Context, Star, register
 
 from .linuxdo_preview.cache import TTLCache
-from .linuxdo_preview.formatter import error_message
+from .linuxdo_preview.formatter import (
+    build_forward_chunks,
+    build_plain_preview,
+    error_message,
+)
 from .linuxdo_preview.image_loader import TopicImageLoader
 from .linuxdo_preview.models import EmbeddedTopicImage, FetchError
 from .linuxdo_preview.renderer import (
@@ -26,7 +30,7 @@ from .linuxdo_preview.urls import extract_topic_refs
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
     "将 QQ 群聊和私聊中的 LINUX DO 公开首帖渲染为原生风格长图",
-    "0.5.0",
+    "0.6.0",
 )
 class LinuxDoPreviewPlugin(Star):
     def __init__(
@@ -62,7 +66,7 @@ class LinuxDoPreviewPlugin(Star):
     async def _render_preview_bundle(
         self,
         preview,
-    ) -> tuple[str, tuple[EmbeddedTopicImage, ...]]:
+    ) -> tuple[str | None, tuple[EmbeddedTopicImage, ...]]:
         cache_key = str(preview.topic_id)
         cached_location = self._rendered_images.get(cache_key)
         cached_images = self._embedded_images.get(cache_key)
@@ -80,19 +84,31 @@ class LinuxDoPreviewPlugin(Star):
                 cached_images = await self.image_loader.load(preview.images)
                 self._embedded_images.put(cache_key, cached_images)
             if not cached_location or not image_location_is_usable(cached_location):
-                fragment = build_preview_fragment(preview, cached_images)
-                async with asyncio.timeout(self.settings.render_timeout_seconds):
-                    cached_location = await self.html_render(
-                        LINUXDO_IMAGE_TEMPLATE,
-                        {"text": fragment},
-                        return_url=False,
-                        options=build_render_options(self.settings.image_quality),
+                try:
+                    fragment = build_preview_fragment(preview, cached_images)
+                    async with asyncio.timeout(self.settings.render_timeout_seconds):
+                        cached_location = await self.html_render(
+                            LINUXDO_IMAGE_TEMPLATE,
+                            {"text": fragment},
+                            return_url=False,
+                            options=build_render_options(self.settings.image_quality),
+                        )
+                    if (
+                        not isinstance(cached_location, str)
+                        or not cached_location.strip()
+                    ):
+                        raise RuntimeError("renderer returned an empty image location")
+                    if not image_location_is_usable(cached_location):
+                        raise RuntimeError("renderer image location is unavailable")
+                    self._rendered_images.put(cache_key, cached_location)
+                except Exception as exc:
+                    logger.exception(
+                        "LINUX DO T2I render failed; using text fallback: "
+                        "topic_id=%s error=%s",
+                        preview.topic_id,
+                        type(exc).__name__,
                     )
-                if not isinstance(cached_location, str) or not cached_location.strip():
-                    raise RuntimeError("renderer returned an empty image location")
-                if not image_location_is_usable(cached_location):
-                    raise RuntimeError("renderer image location is unavailable")
-                self._rendered_images.put(cache_key, cached_location)
+                    return None, cached_images
             return cached_location, cached_images
 
     @staticmethod
@@ -132,7 +148,15 @@ class LinuxDoPreviewPlugin(Star):
                 content=[preview_image],
             )
         ]
-        nodes.extend(
+        nodes.extend(self._build_post_image_nodes(uin, embedded_images))
+        return [Nodes(nodes)]
+
+    def _build_post_image_nodes(
+        self,
+        uin: str,
+        embedded_images: tuple[EmbeddedTopicImage, ...],
+    ) -> list[Node]:
+        return [
             Node(
                 uin=uin,
                 name=f"帖子图片 #{image.position}",
@@ -140,7 +164,41 @@ class LinuxDoPreviewPlugin(Star):
             )
             for image in embedded_images
             if image.forward_data_uri
+        ]
+
+    def _build_text_fallback_chain(
+        self,
+        event: AstrMessageEvent,
+        preview,
+        embedded_images: tuple[EmbeddedTopicImage, ...],
+    ) -> list[object]:
+        uin = event.get_self_id() or "10000"
+        text_chunks = build_forward_chunks(
+            preview,
+            chunk_chars=2_000,
+            max_chunks=6,
         )
+        chunk_count = len(text_chunks)
+        nodes = [
+            Node(
+                uin=uin,
+                name="LINUX DO 预览状态",
+                content=[Plain("长图渲染失败，已自动切换为纯文本预览。")],
+            ),
+            *[
+            Node(
+                uin=uin,
+                name=(
+                    "LINUX DO 文本预览"
+                    if chunk_count == 1
+                    else f"LINUX DO 文本预览 {index}/{chunk_count}"
+                ),
+                content=[Plain(chunk)],
+            )
+            for index, chunk in enumerate(text_chunks, start=1)
+            ],
+        ]
+        nodes.extend(self._build_post_image_nodes(uin, embedded_images))
         return [Nodes(nodes)]
 
     @filter.event_message_type(
@@ -201,11 +259,26 @@ class LinuxDoPreviewPlugin(Star):
                 image_location, embedded_images = await self._render_preview_bundle(
                     preview
                 )
-                success_chain = self._build_success_chain(
-                    event,
-                    image_location,
-                    embedded_images,
-                )
+                if image_location is None:
+                    if event.get_platform_name() != "aiocqhttp":
+                        yield event.plain_result(
+                            build_plain_preview(
+                                preview,
+                                max_chars=self.settings.max_content_chars,
+                            )
+                        )
+                        continue
+                    success_chain = self._build_text_fallback_chain(
+                        event,
+                        preview,
+                        embedded_images,
+                    )
+                else:
+                    success_chain = self._build_success_chain(
+                        event,
+                        image_location,
+                        embedded_images,
+                    )
             except Exception as exc:
                 logger.exception(
                     "LINUX DO image render failed: topic_id=%s error=%s",
