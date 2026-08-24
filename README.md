@@ -11,10 +11,10 @@
 - 固定 Linux.do 源站与数字 topic ID，避免 SSRF 和任意 URL 抓取。
 - 通过 Jina Reader 请求公开主题 HTML，并用 `#post_1 .cooked` 只选择楼主首帖正文。
 - 在同一次 Reader 响应中解析主题标题、分类和首帖，不需要为标题增加第二次请求。
-- aiocqhttp 成功时返回一个合并转发：首节点是 JPEG 长图，后续节点按原文顺序各放一张独立帖子图片；其他 QQ 适配器回退为单长图，错误仍返回短文本。
+- aiocqhttp 成功时返回一个合并转发：首节点是 JPEG 长图，后续节点按原文顺序各放一张独立帖子原图；其他 QQ 适配器回退为单长图，错误仍返回短文本。
 - 清理 Discourse BBCode、HTML、双向文本控制符与 CQ 注入样式文本，并对所有正文进行 HTML 转义。
 - 帖子图片按原文顺序内嵌；默认最多加载 6 张，失败、超限和其余图片保留清晰占位/数量提示。
-- 图片仅接受 LINUX DO/LDStatic 的 HTTPS 地址，下载后验证格式、像素和体积，自动纠正方向、缩小并转为去元数据 JPEG。
+- 图片仅接受 LINUX DO/LDStatic 的 HTTPS 地址；长图使用受限缩略 JPEG，独立节点优先保留验证后的 JPEG/PNG 原始字节，其他格式才高质量转码。
 - 顶部品牌与作者图标使用内联 SVG，在长图中保持清晰，不依赖外部图标资源。
 - 成功缓存、同会话同帖去重、并发/响应体/正文长度限制；私聊按发送者隔离去重。
 - Reader 默认硬限制为 12 请求/分钟，低于本次实测公开窗口的 20 RPM。
@@ -30,8 +30,8 @@
 ```text
 QQ 消息中的 Linux.do 链接
   -> Jina Reader（公开主题 URL，只选首帖）
-  -> 插件限量下载 LINUX DO 图片并在本地校验/压缩
-  -> 插件清洗正文并生成含 data URI 图片的本地 HTML
+  -> 插件分别下载 LINUX DO 缩略图与外层原图并在本地校验
+  -> 插件清洗正文并用受限缩略 JPEG 生成本地 HTML
   -> AstrBot 配置的 T2I 服务（公开标题、首帖文本和处理后图片）
   -> QQ 合并转发（长图 + 最多 6 张独立清晰图）
 ```
@@ -61,6 +61,8 @@ QQ 消息中的 Linux.do 链接
   "max_images_per_topic": 6,
   "max_image_bytes": 2000000,
   "max_total_image_bytes": 6000000,
+  "max_forward_image_bytes": 6000000,
+  "max_total_forward_image_bytes": 12000000,
   "image_timeout_seconds": 15,
   "render_timeout_seconds": 90,
   "reply_on_error": true
@@ -108,7 +110,8 @@ python -m ruff check .
 https://linux.do/t/topic/2045356
 ```
 
-图片下载/压缩/上限见 [V3 图片支持设计](docs/v3-image-support.md)，基础长图版式见
+图片下载/压缩/上限见 [V3 图片支持设计](docs/v3-image-support.md)，高清独立原图见
+[V5 原图转发设计](docs/v5-original-forward-images.md)，基础长图版式见
 [V2 长图设计](docs/v2-long-image-design.md)。受限帖子方案见
 [登录/等级权限帖子抓取调研](docs/authenticated-posts-research.md)。标题方案的演进记录见
 [标题获取调研](docs/title-research.md)。空标签标题锚点的根因和回归覆盖见

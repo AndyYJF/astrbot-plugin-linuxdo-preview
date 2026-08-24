@@ -42,13 +42,19 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, payload: bytes) -> None:
+    def __init__(
+        self,
+        payload: bytes | dict[str, tuple[bytes, str]],
+    ) -> None:
         self.payload = payload
         self.closed = False
         self.calls: list[str] = []
 
     def get(self, url: str, **_kwargs):
         self.calls.append(url)
+        if isinstance(self.payload, dict):
+            payload, content_type = self.payload[url]
+            return FakeResponse(url, payload, content_type)
         return FakeResponse(url, self.payload)
 
 
@@ -89,6 +95,69 @@ async def test_loader_downloads_only_the_configured_count_and_embeds_jpeg():
     assert payload.startswith(b"\xff\xd8\xff")
     assert loaded[0].width == 120
     assert loaded[0].height == 80
+    assert loaded[0].forward_data_uri is not None
+    assert loaded[0].forward_data_uri.startswith("data:image/png;base64,")
+    forward_payload = base64.b64decode(
+        loaded[0].forward_data_uri.split(",", 1)[1]
+    )
+    assert forward_payload == session.payload
+
+
+async def test_loader_uses_optimized_preview_but_preserves_original_for_forward():
+    preview_url = "https://cdn.ldstatic.com/optimized/1.jpeg"
+    original_url = "https://cdn.ldstatic.com/original/1.png"
+    preview_payload = make_png(120, 80)
+    original_payload = make_png(1600, 900)
+    session = FakeSession(
+        {
+            preview_url: (preview_payload, "image/png"),
+            original_url: (original_payload, "image/png"),
+        }
+    )
+    settings = Settings(
+        max_images_per_topic=1,
+        max_image_bytes=200_000,
+        max_total_image_bytes=200_000,
+        max_forward_image_bytes=6_000_000,
+        max_total_forward_image_bytes=12_000_000,
+    )
+    loader = TopicImageLoader(settings, session=session)  # type: ignore[arg-type]
+
+    loaded = await loader.load(
+        (TopicImage(1, "原图", original_url, preview_url=preview_url),)
+    )
+
+    assert set(session.calls) == {preview_url, original_url}
+    assert len(loaded) == 1
+    assert loaded[0].width == 120
+    assert loaded[0].height == 80
+    assert loaded[0].forward_width == 1600
+    assert loaded[0].forward_height == 900
+    assert loaded[0].forward_byte_size == len(original_payload)
+    assert loaded[0].forward_data_uri is not None
+    forwarded = base64.b64decode(loaded[0].forward_data_uri.split(",", 1)[1])
+    assert forwarded == original_payload
+
+
+async def test_forward_budget_does_not_remove_bounded_t2i_preview():
+    session = FakeSession(make_png())
+    settings = Settings(
+        max_images_per_topic=1,
+        max_image_bytes=200_000,
+        max_total_image_bytes=200_000,
+        max_forward_image_bytes=200_000,
+        max_total_forward_image_bytes=1,
+    )
+    loader = TopicImageLoader(settings, session=session)  # type: ignore[arg-type]
+
+    loaded = await loader.load(
+        (TopicImage(1, "图片", "https://cdn.ldstatic.com/1.png"),)
+    )
+
+    assert len(loaded) == 1
+    assert loaded[0].data_uri.startswith("data:image/jpeg;base64,")
+    assert loaded[0].forward_data_uri is None
+    assert loaded[0].forward_byte_size == 0
 
 
 async def test_loader_drops_processed_images_after_total_byte_limit():

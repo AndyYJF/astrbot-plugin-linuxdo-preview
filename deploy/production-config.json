@@ -12,6 +12,8 @@
   "max_images_per_topic": 6,
   "max_image_bytes": 2000000,
   "max_total_image_bytes": 6000000,
+  "max_forward_image_bytes": 6000000,
+  "max_total_forward_image_bytes": 12000000,
   "image_timeout_seconds": 15,
   "render_timeout_seconds": 90,
   "reply_on_error": true

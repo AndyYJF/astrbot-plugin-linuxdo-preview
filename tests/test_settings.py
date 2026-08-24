@@ -7,6 +7,8 @@ def test_image_limits_are_clamped_from_plugin_config():
             "max_images_per_topic": 99,
             "max_image_bytes": 1,
             "max_total_image_bytes": 99_000_000,
+            "max_forward_image_bytes": 1,
+            "max_total_forward_image_bytes": 99_000_000,
             "image_timeout_seconds": 1,
             "render_timeout_seconds": 999,
         }
@@ -15,6 +17,8 @@ def test_image_limits_are_clamped_from_plugin_config():
     assert settings.max_images_per_topic == 12
     assert settings.max_image_bytes == 128_000
     assert settings.max_total_image_bytes == 16_000_000
+    assert settings.max_forward_image_bytes == 512_000
+    assert settings.max_total_forward_image_bytes == 32_000_000
     assert settings.image_timeout_seconds == 5
     assert settings.render_timeout_seconds == 180
 

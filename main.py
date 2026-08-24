@@ -26,7 +26,7 @@ from .linuxdo_preview.urls import extract_topic_refs
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
     "将 QQ 群聊和私聊中的 LINUX DO 公开首帖渲染为原生风格长图",
-    "0.4.0",
+    "0.5.0",
 )
 class LinuxDoPreviewPlugin(Star):
     def __init__(
@@ -45,7 +45,7 @@ class LinuxDoPreviewPlugin(Star):
         )
         self._embedded_images: TTLCache[tuple[EmbeddedTopicImage, ...]] = TTLCache(
             ttl_seconds=self.settings.cache_ttl_seconds,
-            max_entries=min(8, self.settings.max_cache_entries),
+            max_entries=min(4, self.settings.max_cache_entries),
         )
 
     async def initialize(self) -> None:
@@ -105,10 +105,14 @@ class LinuxDoPreviewPlugin(Star):
 
     @staticmethod
     def _image_from_embedded(image: EmbeddedTopicImage) -> Image:
-        prefix = "data:image/jpeg;base64,"
-        if not image.data_uri.startswith(prefix):
-            raise ValueError("embedded image is not a JPEG data URI")
-        return Image.fromBase64(image.data_uri.removeprefix(prefix))
+        data_uri = image.forward_data_uri
+        if (
+            not data_uri
+            or not data_uri.startswith("data:image/")
+            or "," not in data_uri
+        ):
+            raise ValueError("embedded image has no forward data URI")
+        return Image.fromBase64(data_uri.split(",", 1)[1])
 
     def _build_success_chain(
         self,
@@ -135,6 +139,7 @@ class LinuxDoPreviewPlugin(Star):
                 content=[self._image_from_embedded(image)],
             )
             for image in embedded_images
+            if image.forward_data_uri
         )
         return [Nodes(nodes)]
 

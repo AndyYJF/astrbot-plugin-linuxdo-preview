@@ -2,7 +2,8 @@
 set -euo pipefail
 
 project='/c/Users/AndyYan/Desktop/codex/astrbot-plugin-linuxdo-preview'
-archive="$project/dist/astrbot_plugin_linuxdo_preview-0.4.0.tar.gz"
+version="$(sed -n 's/^version: //p' "$project/metadata.yaml")"
+archive="$project/dist/astrbot_plugin_linuxdo_preview-${version}.tar.gz"
 
 mkdir -p "$project/dist"
 cd "$project"

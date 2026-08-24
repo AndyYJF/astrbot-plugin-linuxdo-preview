@@ -101,8 +101,10 @@ def test_preserves_bounded_reader_image_refs_in_post_order():
     assert cleaned.truncated is False
     assert cleaned.total_image_count == 3
     assert len(cleaned.images) == 2
-    assert cleaned.images[0].source_url.endswith("optimized/1.png")
-    assert cleaned.images[1].source_url.endswith("optimized/2.png")
+    assert cleaned.images[0].source_url.endswith("original/1.png")
+    assert cleaned.images[1].source_url.endswith("original/2.png")
+    assert cleaned.images[0].preview_url.endswith("optimized/1.png")
+    assert cleaned.images[1].preview_url.endswith("optimized/2.png")
     assert cleaned.images[0].marker in cleaned.text
     assert cleaned.images[1].marker in cleaned.text
     assert "[另有 1 张图片暂未展示]" in cleaned.text

@@ -31,6 +31,7 @@ class TopicImage:
     position: int
     alt: str
     source_url: str
+    preview_url: str | None = None
 
     @property
     def marker(self) -> str:
@@ -46,6 +47,10 @@ class EmbeddedTopicImage:
     width: int
     height: int
     byte_size: int
+    forward_data_uri: str | None = None
+    forward_width: int = 0
+    forward_height: int = 0
+    forward_byte_size: int = 0
 
 
 @dataclass(frozen=True, slots=True)

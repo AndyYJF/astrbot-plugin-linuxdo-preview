@@ -42,12 +42,17 @@ class Settings:
     max_images_per_topic: int = 6
     max_image_bytes: int = 2_000_000
     max_total_image_bytes: int = 6_000_000
+    max_forward_image_bytes: int = 6_000_000
+    max_total_forward_image_bytes: int = 12_000_000
     image_timeout_seconds: int = 15
     render_timeout_seconds: int = 90
     image_jpeg_quality: int = 82
     image_max_width: int = 1400
     image_max_height: int = 2400
     image_max_pixels: int = 20_000_000
+    forward_image_jpeg_quality: int = 94
+    forward_image_max_width: int = 4096
+    forward_image_max_height: int = 8192
     max_cache_entries: int = 128
     max_concurrency: int = 2
     reply_on_error: bool = True
@@ -95,6 +100,18 @@ class Settings:
                 6_000_000,
                 256_000,
                 16_000_000,
+            ),
+            max_forward_image_bytes=_clamp_int(
+                data.get("max_forward_image_bytes"),
+                6_000_000,
+                512_000,
+                16_000_000,
+            ),
+            max_total_forward_image_bytes=_clamp_int(
+                data.get("max_total_forward_image_bytes"),
+                12_000_000,
+                1_000_000,
+                32_000_000,
             ),
             image_timeout_seconds=_clamp_int(
                 data.get("image_timeout_seconds"), 15, 5, 45

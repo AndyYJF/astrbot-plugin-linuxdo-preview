@@ -46,7 +46,11 @@ def clean_discourse_content(
     visible_images = 0
     images: list[TopicImage] = []
 
-    def image_placeholder(url: str, alt: str = "") -> str:
+    def image_placeholder(
+        url: str,
+        alt: str = "",
+        preview_url: str | None = None,
+    ) -> str:
         nonlocal image_count, visible_images
         alt = alt.split("|")[0].strip()
         if "/images/emoji/" in url:
@@ -63,6 +67,7 @@ def clean_discourse_content(
                 position=visible_images,
                 alt=alt,
                 source_url=url,
+                preview_url=preview_url,
             )
             images.append(image)
             return image.marker
@@ -72,7 +77,11 @@ def clean_discourse_content(
         return image_placeholder(match.group("url"), match.group("alt"))
 
     text = _DISCOURSE_LINKED_IMAGE_RE.sub(
-        lambda match: image_placeholder(match.group("preview"), match.group("alt")),
+        lambda match: image_placeholder(
+            match.group("url"),
+            match.group("alt"),
+            preview_url=match.group("preview"),
+        ),
         text,
     )
     text = _LINKED_IMAGE_RE.sub(lambda match: match.group("image"), text)

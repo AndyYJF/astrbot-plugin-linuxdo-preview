@@ -72,6 +72,18 @@
     "default": 6000000,
     "hint": "范围 256000-16000000；达到上限后的图片保留占位。"
   },
+  "max_forward_image_bytes": {
+    "description": "QQ 独立图片单张最大字节数",
+    "type": "int",
+    "default": 6000000,
+    "hint": "范围 512000-16000000；仅影响合并转发中的独立高清图，不增加 T2I 长图载荷。"
+  },
+  "max_total_forward_image_bytes": {
+    "description": "QQ 独立图片单帖最大总字节数",
+    "type": "int",
+    "default": 12000000,
+    "hint": "范围 1000000-32000000；超出预算的图片仍可出现在正文长图中，但不再追加独立节点。"
+  },
   "image_timeout_seconds": {
     "description": "单张图片下载超时秒数",
     "type": "int",
