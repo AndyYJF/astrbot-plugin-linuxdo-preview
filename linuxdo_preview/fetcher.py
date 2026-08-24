@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import re
 from collections import deque
 from collections.abc import Mapping
@@ -9,6 +10,7 @@ from time import monotonic
 
 import aiohttp
 
+from .auth import SecretLoadError, load_user_api_credentials
 from .models import FetchedTopic, FetchError, FetchErrorCode, TopicRef
 from .settings import Settings
 
@@ -34,6 +36,10 @@ _READER_HEADERS = {
     "Accept": "text/plain",
     "X-No-Cache": "true",
     "X-Target-Selector": "#post_1 .cooked",
+}
+_AUTHENTICATED_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "AstrBot-LinuxDo-Preview/0.7 (read-only)",
 }
 
 
@@ -87,6 +93,64 @@ def is_restricted_placeholder(body: str) -> bool:
     return normalized in _RESTRICTED_PLACEHOLDERS
 
 
+def parse_authenticated_topic_response(body: str, topic_id: int) -> FetchedTopic:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise FetchError(
+            FetchErrorCode.UNAVAILABLE,
+            "authenticated response was not valid JSON",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise FetchError(
+            FetchErrorCode.UNAVAILABLE,
+            "authenticated response root was not an object",
+        )
+
+    post_stream = payload.get("post_stream")
+    posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
+    if not isinstance(posts, list):
+        posts = payload.get("posts")
+    if not isinstance(posts, list):
+        raise FetchError(
+            FetchErrorCode.UNAVAILABLE,
+            "authenticated response omitted posts",
+        )
+
+    first_post = next(
+        (
+            post
+            for post in posts
+            if isinstance(post, dict)
+            and post.get("post_number") == 1
+            and post.get("topic_id", topic_id) == topic_id
+        ),
+        None,
+    )
+    if first_post is None:
+        raise FetchError(
+            FetchErrorCode.UNAVAILABLE,
+            "authenticated response omitted first post",
+        )
+    raw = first_post.get("raw")
+    if not isinstance(raw, str) or not raw.strip():
+        raise FetchError(
+            FetchErrorCode.UNAVAILABLE,
+            "authenticated first post omitted raw content",
+        )
+
+    title_value = payload.get("title") or first_post.get("topic_title") or ""
+    title = str(title_value).strip()[:180] or f"LINUX DO 帖子 #{topic_id}"
+    category_value = payload.get("category_name") or first_post.get("category_name")
+    category = str(category_value).strip()[:80] if category_value else ""
+    return FetchedTopic(
+        title=title,
+        category=category,
+        content=raw.strip(),
+        source="discourse-user-api",
+    )
+
+
 class LinuxDoFetcher:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -94,6 +158,8 @@ class LinuxDoFetcher:
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
         self._reader_rate_lock = asyncio.Lock()
         self._reader_requests: deque[float] = deque()
+        self._authenticated_rate_lock = asyncio.Lock()
+        self._authenticated_requests: deque[float] = deque()
 
     async def close(self) -> None:
         if self._session is not None and not self._session.closed:
@@ -101,6 +167,66 @@ class LinuxDoFetcher:
 
     async def fetch_first_post(self, ref: TopicRef) -> FetchedTopic:
         return await self._fetch_reader(ref)
+
+    async def fetch_authenticated_first_post(self, ref: TopicRef) -> FetchedTopic:
+        if not self._settings.authenticated_enabled:
+            raise FetchError(
+                FetchErrorCode.AUTH_UNAVAILABLE,
+                "authenticated channel is disabled",
+            )
+        try:
+            credentials = load_user_api_credentials(
+                self._settings.authenticated_secret_file
+            )
+        except SecretLoadError as exc:
+            raise FetchError(
+                FetchErrorCode.AUTH_UNAVAILABLE,
+                type(exc).__name__,
+            ) from exc
+
+        await self._acquire_authenticated_slot()
+        request_headers = {
+            **_AUTHENTICATED_HEADERS,
+            "User-Api-Key": credentials.user_api_key,
+            "User-Api-Client-Id": credentials.user_api_client_id,
+        }
+        status, headers, body = await self._request(
+            ref.authenticated_first_post_url,
+            timeout_seconds=self._settings.authenticated_timeout_seconds,
+            request_headers=request_headers,
+            allow_redirects=False,
+        )
+        if is_cloudflare_challenge(status, headers, body):
+            raise FetchError(
+                FetchErrorCode.CHALLENGE,
+                "authenticated endpoint returned challenge",
+            )
+        if status == 401:
+            raise FetchError(
+                FetchErrorCode.AUTH_INVALID,
+                "user API key was rejected",
+            )
+        if status in {403, 404}:
+            raise FetchError(
+                FetchErrorCode.AUTH_FORBIDDEN,
+                "authorized account cannot access topic",
+            )
+        if status == 429:
+            raise FetchError(
+                FetchErrorCode.RATE_LIMITED,
+                "authenticated endpoint rate limited",
+            )
+        if status >= 500:
+            raise FetchError(
+                FetchErrorCode.UNAVAILABLE,
+                "authenticated endpoint unavailable",
+            )
+        if status >= 300:
+            raise FetchError(
+                FetchErrorCode.NETWORK,
+                f"authenticated endpoint HTTP {status}",
+            )
+        return parse_authenticated_topic_response(body, ref.topic_id)
 
     async def _fetch_reader(self, ref: TopicRef) -> FetchedTopic:
         await self._acquire_reader_slot()
@@ -151,11 +277,30 @@ class LinuxDoFetcher:
                 )
             self._reader_requests.append(now)
 
+    async def _acquire_authenticated_slot(self) -> None:
+        async with self._authenticated_rate_lock:
+            now = monotonic()
+            cutoff = now - 60
+            while (
+                self._authenticated_requests
+                and self._authenticated_requests[0] <= cutoff
+            ):
+                self._authenticated_requests.popleft()
+            if len(self._authenticated_requests) >= (
+                self._settings.authenticated_requests_per_minute
+            ):
+                raise FetchError(
+                    FetchErrorCode.RATE_LIMITED,
+                    "local authenticated requests-per-minute limit reached",
+                )
+            self._authenticated_requests.append(now)
+
     async def _request(
         self,
         url: str,
         timeout_seconds: int,
         request_headers: Mapping[str, str],
+        allow_redirects: bool = True,
     ) -> tuple[int, dict[str, str], str]:
         session = self._get_session()
         timeout = aiohttp.ClientTimeout(total=timeout_seconds)
@@ -166,7 +311,7 @@ class LinuxDoFetcher:
                     headers=request_headers,
                     timeout=timeout,
                     proxy=self._settings.proxy_url,
-                    allow_redirects=True,
+                    allow_redirects=allow_redirects,
                 ) as response:
                     payload = bytearray()
                     async for chunk in response.content.iter_chunked(16_384):

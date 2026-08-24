@@ -1,9 +1,9 @@
 name: astrbot_plugin_linuxdo_preview
 display_name: LINUX DO 帖子预览
-desc: 自动识别 QQ 群聊和私聊中的 LINUX DO 帖子链接，通过 Reader 获取公开主题 HTML，并生成含限量图片的原生风格首帖长图。
-short_desc: QQ 群聊/私聊 LINUX DO 首帖图文长图。
+desc: 自动识别 QQ 中的 LINUX DO 帖子链接，公开帖通过 Reader 获取，受限帖仅允许绑定私聊使用只读 User API Key，并生成安全首帖预览。
+short_desc: QQ LINUX DO 首帖预览，支持私聊只读登录通道。
 author: AndyYan
-version: 0.6.0
+version: 0.7.0
 astrbot_version: ">=4.26,<5"
 support_platforms:
   - aiocqhttp

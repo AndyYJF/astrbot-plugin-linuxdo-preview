@@ -1,9 +1,11 @@
 import pytest
 
+from linuxdo_preview.auth import UserApiCredentials
 from linuxdo_preview.fetcher import (
     LinuxDoFetcher,
     is_cloudflare_challenge,
     is_restricted_placeholder,
+    parse_authenticated_topic_response,
     parse_reader_page_title,
     parse_reader_topic_response,
     unwrap_reader_response,
@@ -120,5 +122,87 @@ async def test_reader_rate_limit_fails_fast():
     await fetcher._acquire_reader_slot()
     with pytest.raises(FetchError) as captured:
         await fetcher._acquire_reader_slot()
+    assert captured.value.code is FetchErrorCode.RATE_LIMITED
+    await fetcher.close()
+
+
+def test_parses_only_authenticated_first_post_and_title():
+    fetched = parse_authenticated_topic_response(
+        """{
+          "posts": [
+            {"post_number": 2, "topic_id": 123, "raw": "二楼"},
+            {
+              "post_number": 1,
+              "topic_id": 123,
+              "topic_title": "等级帖标题",
+              "raw": "只读楼主正文"
+            }
+          ]
+        }""",
+        123,
+    )
+
+    assert fetched.title == "等级帖标题"
+    assert fetched.content == "只读楼主正文"
+    assert "二楼" not in fetched.content
+    assert fetched.source == "discourse-user-api"
+
+
+async def test_authenticated_fetch_uses_fixed_headers_and_disables_redirects(
+    monkeypatch,
+):
+    settings = Settings(
+        authenticated_enabled=True,
+        authenticated_secret_file="/unused/test-secret.json",
+    )
+    fetcher = LinuxDoFetcher(settings)
+    captured = {}
+
+    monkeypatch.setattr(
+        "linuxdo_preview.fetcher.load_user_api_credentials",
+        lambda _path: UserApiCredentials("A" * 40, "client-id-123456"),
+    )
+
+    async def fake_request(
+        url,
+        timeout_seconds,
+        request_headers,
+        allow_redirects,
+    ):
+        captured.update(
+            url=url,
+            timeout_seconds=timeout_seconds,
+            request_headers=request_headers,
+            allow_redirects=allow_redirects,
+        )
+        return (
+            200,
+            {"content-type": "application/json"},
+            """{"posts":[{"post_number":1,"topic_id":123,
+            "topic_title":"标题","raw":"正文"}]}""",
+        )
+
+    monkeypatch.setattr(fetcher, "_request", fake_request)
+    fetched = await fetcher.fetch_authenticated_first_post(
+        TopicRef(123, "https://linux.do/t/topic/123")
+    )
+
+    assert captured["url"] == (
+        "https://linux.do/t/123/posts.json?post_number=1&include_raw=true"
+    )
+    assert captured["allow_redirects"] is False
+    assert captured["request_headers"]["User-Api-Key"] == "A" * 40
+    assert captured["request_headers"]["User-Api-Client-Id"] == (
+        "client-id-123456"
+    )
+    assert fetched.content == "正文"
+    await fetcher.close()
+
+
+async def test_authenticated_rate_limit_fails_fast():
+    fetcher = LinuxDoFetcher(Settings(authenticated_requests_per_minute=1))
+    await fetcher._acquire_authenticated_slot()
+    with pytest.raises(FetchError) as captured:
+        await fetcher._acquire_authenticated_slot()
     assert captured.value.code is FetchErrorCode.RATE_LIMITED
     await fetcher.close()

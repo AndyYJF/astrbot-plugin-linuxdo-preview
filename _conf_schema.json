@@ -43,6 +43,42 @@
     "default": 12,
     "hint": "公开通道实测窗口为 20 RPM；默认留出余量，超限时快速失败。"
   },
+  "authenticated_enabled": {
+    "description": "启用私聊只读登录通道",
+    "type": "bool",
+    "default": false,
+    "hint": "只有下方 QQ sender allowlist 中的私聊可触发；群聊永远不会使用登录凭据。"
+  },
+  "authenticated_private_sender_allowlist": {
+    "description": "允许登录抓取的私聊 QQ sender_id",
+    "type": "list",
+    "default": [],
+    "hint": "必须显式填写；留空时即使启用登录通道也不会向任何 QQ 会话返回受限正文。"
+  },
+  "authenticated_secret_file": {
+    "description": "只读 User API Key secret 文件",
+    "type": "string",
+    "default": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
+    "hint": "只填写绝对路径，secret 内容不得写入本配置、Git 或日志；生产文件权限应为 0600。"
+  },
+  "authenticated_timeout_seconds": {
+    "description": "登录 API 请求超时秒数",
+    "type": "int",
+    "default": 20,
+    "hint": "范围 5-60；请求固定为 linux.do 单个首帖 JSON，且禁止跟随重定向。"
+  },
+  "authenticated_requests_per_minute": {
+    "description": "登录通道每分钟最大请求数",
+    "type": "int",
+    "default": 3,
+    "hint": "范围 1-6；授权私聊每条消息最多处理一个链接。"
+  },
+  "authenticated_cache_ttl_seconds": {
+    "description": "登录正文内存缓存秒数",
+    "type": "int",
+    "default": 120,
+    "hint": "范围 30-600；缓存键包含授权 QQ 主体，不与公开或其他主体共享。"
+  },
   "max_content_chars": {
     "description": "单张长图最多保留的正文字符数",
     "type": "int",

@@ -1,4 +1,11 @@
-from linuxdo_preview.models import FetchedTopic, TopicRef
+import pytest
+
+from linuxdo_preview.models import (
+    FetchedTopic,
+    FetchError,
+    FetchErrorCode,
+    TopicRef,
+)
 from linuxdo_preview.service import PreviewService
 from linuxdo_preview.settings import Settings
 
@@ -42,3 +49,45 @@ async def test_service_caches_success_and_deduplicates_by_scope():
 
     await service.close()
     assert fetcher.closed is True
+
+
+class FakeAuthenticatedFetcher(FakeFetcher):
+    def __init__(self):
+        super().__init__()
+        self.auth_calls = 0
+
+    async def fetch_first_post(self, ref):
+        self.calls += 1
+        raise FetchError(FetchErrorCode.RESTRICTED, "private")
+
+    async def fetch_authenticated_first_post(self, ref):
+        self.auth_calls += 1
+        return FetchedTopic(
+            title=f"受限标题 {ref.topic_id}",
+            category="开发调优",
+            content="授权正文",
+            source="discourse-user-api",
+        )
+
+
+async def test_authenticated_preview_cache_is_subject_scoped_and_not_public():
+    settings = Settings(cache_ttl_seconds=60, authenticated_cache_ttl_seconds=60)
+    fetcher = FakeAuthenticatedFetcher()
+    service = PreviewService(settings, fetcher=fetcher)
+    ref = TopicRef(321, "https://linux.do/t/topic/321")
+
+    first = await service.get_preview(ref, auth_subject="qq-a")
+    second = await service.get_preview(ref, auth_subject="qq-a")
+    other = await service.get_preview(ref, auth_subject="qq-b")
+
+    assert first == second
+    assert first.cache_scope == "auth:qq-a"
+    assert other.cache_scope == "auth:qq-b"
+    assert fetcher.auth_calls == 2
+    assert fetcher.calls == 0
+
+    with pytest.raises(FetchError) as captured:
+        await service.get_preview(ref)
+    assert captured.value.code is FetchErrorCode.RESTRICTED
+    assert fetcher.calls == 1
+    await service.close()

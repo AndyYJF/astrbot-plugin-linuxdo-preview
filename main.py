@@ -29,8 +29,8 @@ from .linuxdo_preview.urls import extract_topic_refs
 @register(
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
-    "将 QQ 群聊和私聊中的 LINUX DO 公开首帖渲染为原生风格长图",
-    "0.6.0",
+    "将 QQ 中的 LINUX DO 首帖渲染为长图，支持私聊绑定的只读登录通道",
+    "0.7.0",
 )
 class LinuxDoPreviewPlugin(Star):
     def __init__(
@@ -54,10 +54,13 @@ class LinuxDoPreviewPlugin(Star):
 
     async def initialize(self) -> None:
         logger.info(
-            "LINUX DO preview initialized: mode=%s, proxy=%s, groups=%s",
+            "LINUX DO preview initialized: mode=%s, proxy=%s, groups=%s, "
+            "authenticated=%s, authenticated_private_senders=%s",
             self.settings.fetch_mode,
             "configured" if self.settings.proxy_url else "none",
             len(self.settings.group_allowlist),
+            "enabled" if self.settings.authenticated_enabled else "disabled",
+            len(self.settings.authenticated_private_sender_allowlist),
         )
 
     async def terminate(self) -> None:
@@ -67,7 +70,7 @@ class LinuxDoPreviewPlugin(Star):
         self,
         preview,
     ) -> tuple[str | None, tuple[EmbeddedTopicImage, ...]]:
-        cache_key = str(preview.topic_id)
+        cache_key = f"{preview.cache_scope}:{preview.topic_id}"
         cached_location = self._rendered_images.get(cache_key)
         cached_images = self._embedded_images.get(cache_key)
         if (
@@ -102,7 +105,7 @@ class LinuxDoPreviewPlugin(Star):
                         raise RuntimeError("renderer image location is unavailable")
                     self._rendered_images.put(cache_key, cached_location)
                 except Exception as exc:
-                    logger.exception(
+                    logger.warning(
                         "LINUX DO T2I render failed; using text fallback: "
                         "topic_id=%s error=%s",
                         preview.topic_id,
@@ -184,8 +187,9 @@ class LinuxDoPreviewPlugin(Star):
                 uin=uin,
                 name="LINUX DO 预览状态",
                 content=[Plain("长图渲染失败，已自动切换为纯文本预览。")],
-            ),
-            *[
+            )
+        ]
+        nodes.extend(
             Node(
                 uin=uin,
                 name=(
@@ -196,8 +200,62 @@ class LinuxDoPreviewPlugin(Star):
                 content=[Plain(chunk)],
             )
             for index, chunk in enumerate(text_chunks, start=1)
-            ],
+        )
+        nodes.extend(self._build_post_image_nodes(uin, embedded_images))
+        return [Nodes(nodes)]
+
+    async def _build_authenticated_chain(
+        self,
+        event: AstrMessageEvent,
+        preview,
+    ) -> list[object]:
+        cache_key = f"{preview.cache_scope}:{preview.topic_id}"
+        embedded_images = self._embedded_images.get(cache_key)
+        if embedded_images is None:
+            embedded_images = await self.image_loader.load(preview.images)
+            self._embedded_images.put(cache_key, embedded_images)
+
+        if event.get_platform_name() != "aiocqhttp":
+            return [
+                Plain(
+                    build_plain_preview(
+                        preview,
+                        max_chars=self.settings.max_content_chars,
+                    )
+                )
+            ]
+
+        uin = event.get_self_id() or "10000"
+        text_chunks = build_forward_chunks(
+            preview,
+            chunk_chars=2_000,
+            max_chunks=6,
+        )
+        chunk_count = len(text_chunks)
+        nodes = [
+            Node(
+                uin=uin,
+                name="LINUX DO 授权预览状态",
+                content=[
+                    Plain(
+                        "该内容通过绑定的只读授权获取，"
+                        "未交给 Jina Reader 或第三方 T2I。"
+                    )
+                ],
+            )
         ]
+        nodes.extend(
+            Node(
+                uin=uin,
+                name=(
+                    "LINUX DO 授权文本预览"
+                    if chunk_count == 1
+                    else f"LINUX DO 授权文本预览 {index}/{chunk_count}"
+                ),
+                content=[Plain(chunk)],
+            )
+            for index, chunk in enumerate(text_chunks, start=1)
+        )
         nodes.extend(self._build_post_image_nodes(uin, embedded_images))
         return [Nodes(nodes)]
 
@@ -207,8 +265,8 @@ class LinuxDoPreviewPlugin(Star):
     async def on_group_message(self, event: AstrMessageEvent):
         if not self.settings.enabled:
             return
-        sender_id = event.get_sender_id()
-        self_id = event.get_self_id()
+        sender_id = str(event.get_sender_id() or "").strip()
+        self_id = str(event.get_self_id() or "").strip()
         if self_id and sender_id == self_id:
             return
 
@@ -220,9 +278,14 @@ class LinuxDoPreviewPlugin(Star):
         ):
             return
 
+        auth_subject = self.settings.authenticated_subject_for(sender_id, group_id)
+
+        ref_limit = self.settings.max_links_per_message
+        if auth_subject:
+            ref_limit = min(ref_limit, 1)
         refs = extract_topic_refs(
             event.get_message_str(),
-            limit=self.settings.max_links_per_message,
+            limit=ref_limit,
         )
         if not refs:
             return
@@ -233,7 +296,10 @@ class LinuxDoPreviewPlugin(Star):
             if not self.service.reserve(scope, ref.topic_id):
                 continue
             try:
-                preview = await self.service.get_preview(ref)
+                preview = await self.service.get_preview(
+                    ref,
+                    auth_subject=auth_subject,
+                )
             except FetchError as exc:
                 logger.warning(
                     "LINUX DO preview failed: topic_id=%s code=%s detail=%s",
@@ -256,29 +322,35 @@ class LinuxDoPreviewPlugin(Star):
                 continue
 
             try:
-                image_location, embedded_images = await self._render_preview_bundle(
-                    preview
-                )
-                if image_location is None:
-                    if event.get_platform_name() != "aiocqhttp":
-                        yield event.plain_result(
-                            build_plain_preview(
-                                preview,
-                                max_chars=self.settings.max_content_chars,
-                            )
-                        )
-                        continue
-                    success_chain = self._build_text_fallback_chain(
+                if preview.cache_scope != "public":
+                    success_chain = await self._build_authenticated_chain(
                         event,
                         preview,
-                        embedded_images,
                     )
                 else:
-                    success_chain = self._build_success_chain(
-                        event,
-                        image_location,
-                        embedded_images,
+                    image_location, embedded_images = (
+                        await self._render_preview_bundle(preview)
                     )
+                    if image_location is None:
+                        if event.get_platform_name() != "aiocqhttp":
+                            yield event.plain_result(
+                                build_plain_preview(
+                                    preview,
+                                    max_chars=self.settings.max_content_chars,
+                                )
+                            )
+                            continue
+                        success_chain = self._build_text_fallback_chain(
+                            event,
+                            preview,
+                            embedded_images,
+                        )
+                    else:
+                        success_chain = self._build_success_chain(
+                            event,
+                            image_location,
+                            embedded_images,
+                        )
             except Exception as exc:
                 logger.exception(
                     "LINUX DO image render failed: topic_id=%s error=%s",

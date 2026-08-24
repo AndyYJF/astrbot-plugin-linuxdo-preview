@@ -1,8 +1,9 @@
 # AstrBot LINUX DO 帖子预览
 
-面向 QQ 群聊和私聊消息的 AstrBot 插件。用户发送公开的
-`linux.do/t/.../<topic_id>` 或 `linux.do/raw/<topic_id>` 链接后，插件读取主题页首帖，
-并优先返回一张接近 LINUX DO 原生前端的长图。
+面向 QQ 群聊和私聊消息的 AstrBot 插件。用户发送
+`linux.do/t/.../<topic_id>` 或 `linux.do/raw/<topic_id>` 链接后，插件只读取主题首帖。
+公开帖优先返回接近 LINUX DO 原生前端的长图；受限帖仅允许显式绑定的 QQ 私聊通过
+Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本转发返回。
 
 ## 当前能力
 
@@ -19,7 +20,13 @@
 - 顶部品牌与作者图标使用内联 SVG，在长图中保持清晰，不依赖外部图标资源。
 - 成功缓存、同会话同帖去重、并发/响应体/正文长度限制；私聊按发送者隔离去重。
 - Reader 默认硬限制为 12 请求/分钟，低于本次实测公开窗口的 20 RPM。
-- 登录或信任等级受限的帖子只给出边界提示；当前版本不抓取受限内容。
+- 登录通道默认关闭，且必须同时启用、配置只读 secret 文件并显式填写 QQ sender allowlist；
+  群聊永远不会使用登录授权。
+- 获准的 QQ 私聊每条消息最多处理一个链接，登录通道独立限制为 3 请求/分钟，认证缓存
+  按 QQ 主体隔离且只保存在内存中。
+- 授权私聊直接请求 Linux.do 固定首帖 JSON，不会先把帖子交给 Jina 判断，也不会把受限
+  正文交给现有 T2I。aiocqhttp 返回“授权状态 + 标题/正文 + 可安全下载的独立图片”合并转发。
+- 未绑定的私聊和所有群聊仍按公开通道处理；遇到受限帖只返回权限提示。
 
 用户链接里的 `/1`、`/11` 等浏览楼层后缀不会改变输出范围。插件只提取数字 topic ID，
 再构造固定主题 URL，最终仍只读取 `#post_1 .cooked`。
@@ -38,11 +45,23 @@ QQ 消息中的 Linux.do 链接
      若 T2I 失败：状态提示 + 标题/正文纯文本 + 同一批独立清晰图
 ```
 
+绑定私聊的授权链路为：
+
+```text
+QQ 私聊中的 Linux.do 链接
+  -> 固定 https://linux.do/t/<数字ID>/posts.json?post_number=1&include_raw=true
+     （只读 User API Key；禁止重定向；只接受楼主首帖）
+  -> 插件本地清洗正文；图片只允许 Linux.do/LDStatic HTTPS
+  -> QQ 合并转发（授权状态 + 标题/首帖纯文本 + 已安全取得的独立图片）
+```
+
 - 不会把 QQ 身份、群消息全文、Cookie、账号或登录材料发送给 Reader/T2I。
 - Reader 和 T2I 都会接触公开帖的标题与首帖正文；T2I 还会收到处理后的公开帖子图片。若不能接受第三方处理，请勿启用本插件。
 - 缓存只在插件进程内存中，重载后清空；渲染文件由 AstrBot 临时文件机制管理。
 - 日志只记录 topic ID、错误类型和处理来源，不记录帖子正文。
-- 登录态、等级帖和任何认证材料都不会交给第三方服务。
+- 登录态、等级帖正文和任何认证材料都不会交给 Jina Reader 或第三方 T2I。
+- 不接受 Cookie、用户名或密码配置。User API Key 必须位于生产机绝对路径的独立 secret
+  文件中，不能写入 AstrBot 普通配置、Git、聊天或日志。
 
 ## 配置建议
 
@@ -58,6 +77,12 @@ QQ 消息中的 Linux.do 链接
   "dedup_ttl_seconds": 300,
   "reader_timeout_seconds": 45,
   "reader_requests_per_minute": 12,
+  "authenticated_enabled": false,
+  "authenticated_private_sender_allowlist": [],
+  "authenticated_secret_file": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
+  "authenticated_timeout_seconds": 20,
+  "authenticated_requests_per_minute": 3,
+  "authenticated_cache_ttl_seconds": 120,
   "max_content_chars": 12000,
   "image_quality": 88,
   "max_images_per_topic": 6,
@@ -74,6 +99,11 @@ QQ 消息中的 Linux.do 链接
 `proxy_url` 用于 Reader 和帖子图片请求。`max_images_per_topic` 可设为 `0` 完全关闭图片下载，
 有效范围为 0–12。长图由 AstrBot 的 T2I 配置生成；生产部署前必须验证 AstrBot 容器可以访问
 该渲染端点。`render_timeout_seconds` 会在 T2I 不响应时终止本次渲染，并自动使用上述纯文本合并转发回退。
+
+认证配置的 secret 格式、授权边界、Cloudflare 兼容性和启用前检查见
+[V7 受限帖私聊预览](docs/v7-authenticated-private-preview.md)。当前生产网络的普通 HTTP
+请求会收到 Cloudflare challenge，因此在 User API Key 实际探针或自托管浏览器侧车通过前，
+生产配置应保持 `authenticated_enabled: false`。不要向 Issue、聊天或普通配置粘贴 Cookie。
 
 ## 安装
 
@@ -120,4 +150,5 @@ https://linux.do/t/topic/2045356
 [Markdown 跳转链接显示修复](docs/markdown-link-fix.md)。
 合并转发与独立清晰图片的节点布局见
 [V4 合并转发图片设计](docs/v4-forward-images.md)，T2I 失败回退见
-[V6 T2I 纯文本回退设计](docs/v6-t2i-text-fallback.md)。
+[V6 T2I 纯文本回退设计](docs/v6-t2i-text-fallback.md)，授权私聊实现见
+[V7 受限帖私聊预览](docs/v7-authenticated-private-preview.md)。

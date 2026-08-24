@@ -3,7 +3,7 @@ from __future__ import annotations
 from .cache import TTLCache
 from .fetcher import LinuxDoFetcher
 from .formatter import clean_discourse_content
-from .models import TopicPreview, TopicRef
+from .models import FetchedTopic, TopicPreview, TopicRef
 from .settings import Settings
 
 
@@ -18,6 +18,10 @@ class PreviewService:
         self._previews: TTLCache[TopicPreview] = TTLCache(
             ttl_seconds=settings.cache_ttl_seconds,
             max_entries=settings.max_cache_entries,
+        )
+        self._authenticated_previews: TTLCache[TopicPreview] = TTLCache(
+            ttl_seconds=settings.authenticated_cache_ttl_seconds,
+            max_entries=min(16, settings.max_cache_entries),
         )
         self._seen: TTLCache[bool] = TTLCache(
             ttl_seconds=settings.dedup_ttl_seconds,
@@ -34,13 +38,47 @@ class PreviewService:
         self._seen.put(key, True)
         return True
 
-    async def get_preview(self, ref: TopicRef) -> TopicPreview:
+    async def get_preview(
+        self,
+        ref: TopicRef,
+        *,
+        auth_subject: str | None = None,
+    ) -> TopicPreview:
+        normalized_subject = str(auth_subject or "").strip()
+        if normalized_subject:
+            authenticated_cache_key = f"{normalized_subject}:{ref.topic_id}"
+            cached_authenticated = self._authenticated_previews.get(
+                authenticated_cache_key
+            )
+            if cached_authenticated is not None:
+                return cached_authenticated
+
+            fetched = await self.fetcher.fetch_authenticated_first_post(ref)
+            preview = self._build_preview(
+                ref,
+                fetched,
+                cache_scope=f"auth:{normalized_subject}",
+            )
+            self._authenticated_previews.put(authenticated_cache_key, preview)
+            return preview
+
         cache_key = str(ref.topic_id)
         cached = self._previews.get(cache_key)
         if cached is not None:
             return cached
 
         fetched = await self.fetcher.fetch_first_post(ref)
+        preview = self._build_preview(ref, fetched, cache_scope="public")
+        self._previews.put(cache_key, preview)
+        return preview
+
+    def _build_preview(
+        self,
+        ref: TopicRef,
+        fetched: FetchedTopic,
+        *,
+        cache_scope: str,
+    ) -> TopicPreview:
         cleaned = clean_discourse_content(
             fetched.content,
             max_chars=self.settings.max_content_chars,
@@ -56,6 +94,6 @@ class PreviewService:
             truncated=cleaned.truncated,
             images=cleaned.images,
             total_image_count=cleaned.total_image_count,
+            cache_scope=cache_scope,
         )
-        self._previews.put(cache_key, preview)
         return preview

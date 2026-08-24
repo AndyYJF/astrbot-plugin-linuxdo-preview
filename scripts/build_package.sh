@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project='/c/Users/AndyYan/Desktop/codex/astrbot-plugin-linuxdo-preview'
-version="$(sed -n 's/^version: //p' "$project/metadata.yaml")"
-archive="$project/dist/astrbot_plugin_linuxdo_preview-${version}.tar.gz"
-
-mkdir -p "$project/dist"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -W)"
+project="$(cd -- "$script_dir/.." && pwd -W)"
 cd "$project"
+version="$(sed -n 's/^version: //p' metadata.yaml)"
+archive="dist/astrbot_plugin_linuxdo_preview-${version}.tar.gz"
+
+mkdir -p dist
 tar -czf "$archive" \
   --exclude='*/__pycache__' \
   --exclude='*.pyc' \

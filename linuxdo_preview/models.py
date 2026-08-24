@@ -17,6 +17,13 @@ class TopicRef:
     def raw_first_post_url(self) -> str:
         return f"https://linux.do/raw/{self.topic_id}/1"
 
+    @property
+    def authenticated_first_post_url(self) -> str:
+        return (
+            f"https://linux.do/t/{self.topic_id}/posts.json"
+            "?post_number=1&include_raw=true"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class FetchedTopic:
@@ -72,9 +79,13 @@ class TopicPreview:
     truncated: bool = False
     images: tuple[TopicImage, ...] = ()
     total_image_count: int = 0
+    cache_scope: str = "public"
 
 
 class FetchErrorCode(StrEnum):
+    AUTH_FORBIDDEN = "auth_forbidden"
+    AUTH_INVALID = "auth_invalid"
+    AUTH_UNAVAILABLE = "auth_unavailable"
     CHALLENGE = "challenge"
     NETWORK = "network"
     NOT_FOUND = "not_found"

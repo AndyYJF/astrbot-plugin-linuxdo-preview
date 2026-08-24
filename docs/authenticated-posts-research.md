@@ -1,8 +1,9 @@
 # 登录/等级权限帖子抓取调研
 
-调研日期：2026-08-23
+调研日期：2026-08-23；实施更新：2026-08-24
 
-状态：仅调研，当前插件没有实现或启用任何登录抓取。
+状态：0.7.0 本地候选已实现只读、绑定私聊的直连认证路径；生产仍保持关闭，等待
+User API Key/Cloudflare 实测。实施细节见 [V7 受限帖私聊预览](v7-authenticated-private-preview.md)。
 
 ## 结论
 
@@ -10,7 +11,7 @@
 
 1. 使用 Discourse 官方的 **User API Key** 授权流程，只申请 `read` scope；不收集 Linux.do 用户名和密码，不使用管理员 API Key。
 2. 通过固定源站的 JSON API 读取首帖 `raw` 字段；API Key 只能继承关联用户已有权限，不能提升信任等级或绕过站点权限。
-3. Cloudflare 仍须独立处理。优先测试 API Key 请求能否直接通过；若仍被 challenge，则使用生产内网中的自托管浏览器 sidecar，由用户手动登录/授权并维护同源会话。
+3. Cloudflare 仍须独立处理。优先测试 API Key 请求能否直接通过；若仍被 challenge，则使用生产内网中的自托管浏览器 sidecar，仅维护 CF clearance，并使用 User API Key 作为论坛身份。
 4. 登录态、Cookie、User API Key 永远不得发送给 Jina Reader、FlareSolverr 公共实例或其他第三方抓取服务。
 5. 在定义 QQ 侧授权模型前，不应上线“群内被动自动转发受限帖”。一个高等级论坛账号向低权限 QQ 成员广播正文，会形成访问控制泄漏。
 
@@ -42,6 +43,17 @@ Discourse 当前源码在 topic posts API 中把 `include_raw` 传给 `TopicView
 - `cf-mitigated: challenge` 单独归类为传输问题，不能误判成等级不足。
 
 `/t/<topic_id>.json?include_raw=true` 可作为兼容候选，但上线前必须用 Linux.do 实例实测响应结构；不能假设所有 Discourse 版本行为完全一致。
+
+## 设备授权更新
+
+当前 Discourse 源码还提供 `POST /user-api-key/device.json`、浏览器
+`/user-api-key/activate` 与 `POST /user-api-key/device/poll.json`。客户端只提交公钥、nonce、
+client ID 和 `read` scope；用户在已登录浏览器中核对后批准，轮询端得到 RSA/OAEP 加密的
+payload。该流程避免自定义协议回调和人工复制 Key，优先级高于旧版 `/user-api-key/new`。
+
+Linux.do 是否已经部署这些端点、是否允许当前账号组创建 key，以及 Cloudflare 是否放行
+设备请求仍需单次实测。在明确批准前，不会创建设备请求；若设备端点被 challenge，也不会
+退回 Cookie。
 
 ## Cloudflare 设计
 
@@ -83,7 +95,8 @@ sidecar 必须限制出站主机为 `linux.do`，限制入站为 AstrBot 容器�
 4. 从生产固定出口验证带 User API Key 的 JSON API 是否仍被 Cloudflare challenge。
 5. 定义 secret 轮换、撤销、MFA/clearance 过期和应急停用流程。
 
-上述五项未完成前，不建议在当前公开预览插件中加入 Cookie 或登录配置项。
+0.7.0 已加入默认关闭的 secret 文件路径、QQ 私聊 allowlist 与只读认证实现，但不会加入
+Cookie 或密码配置项。上述阻断项未完成前，生产必须继续保持认证开关关闭。
 
 ## 一手资料
 
@@ -93,3 +106,5 @@ sidecar 必须限制出站主机为 `linux.do`，限制入站为 AstrBot 容器�
 - [Discourse post serializer raw visibility](https://github.com/discourse/discourse/blob/main/app/serializers/post_serializer.rb)
 - [Discourse security/CSRF model](https://github.com/discourse/discourse/blob/main/docs/SECURITY.md)
 - [Official Discourse MCP client and User API Key flow](https://github.com/discourse/discourse-mcp)
+- [Discourse User API device controller](https://github.com/discourse/discourse/blob/main/app/controllers/user_api_keys_controller.rb)
+- [Discourse User API device services](https://github.com/discourse/discourse/tree/main/app/services/user_api_key/device_auth)

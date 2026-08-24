@@ -242,10 +242,15 @@ def build_forward_chunks(
 
 def error_message(topic_id: int, code: str) -> str:
     messages = {
+        "auth_forbidden": (
+            f"已授权的 LINUX DO 账号仍无权查看帖子 #{topic_id}，或帖子已删除。"
+        ),
+        "auth_invalid": "LINUX DO 只读登录授权已失效，请联系管理员重新授权。",
+        "auth_unavailable": "LINUX DO 登录通道尚未配置完成，请联系管理员。",
         "not_found": f"LINUX DO 帖子 #{topic_id} 不存在或已删除。",
         "restricted": (
             f"LINUX DO 帖子 #{topic_id} 需要登录或更高信任等级；"
-            "当前版本按约定不抓取受限内容。"
+            "当前 QQ 会话没有获得登录抓取授权。"
         ),
         "rate_limited": "LINUX DO 预览服务请求过多，请稍后再试。",
         "too_large": f"LINUX DO 帖子 #{topic_id} 返回内容过大，已停止读取。",

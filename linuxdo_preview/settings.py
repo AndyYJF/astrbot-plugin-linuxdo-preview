@@ -36,6 +36,14 @@ class Settings:
     dedup_ttl_seconds: int = 300
     reader_timeout_seconds: int = 45
     reader_requests_per_minute: int = 12
+    authenticated_enabled: bool = False
+    authenticated_private_sender_allowlist: frozenset[str] = frozenset()
+    authenticated_secret_file: str = (
+        "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
+    )
+    authenticated_timeout_seconds: int = 20
+    authenticated_requests_per_minute: int = 3
+    authenticated_cache_ttl_seconds: int = 120
     max_response_bytes: int = 262_144
     max_content_chars: int = 12_000
     image_quality: int = 88
@@ -57,15 +65,41 @@ class Settings:
     max_concurrency: int = 2
     reply_on_error: bool = True
 
+    def authenticated_subject_for(
+        self,
+        sender_id: str,
+        group_id: str,
+    ) -> str | None:
+        normalized_sender = str(sender_id or "").strip()
+        if (
+            not self.authenticated_enabled
+            or str(group_id or "").strip()
+            or not normalized_sender
+            or normalized_sender
+            not in self.authenticated_private_sender_allowlist
+        ):
+            return None
+        return normalized_sender
+
     @classmethod
     def from_mapping(cls, config: Mapping[str, Any] | None) -> Settings:
         data = config or {}
         raw_proxy = str(data.get("proxy_url", "")).strip()
+        raw_secret_file = str(data.get("authenticated_secret_file", "")).strip()
 
         raw_groups = data.get("group_allowlist", [])
         groups: set[str] = set()
         if isinstance(raw_groups, list | tuple | set | frozenset):
             groups = {str(value).strip() for value in raw_groups if str(value).strip()}
+
+        raw_senders = data.get("authenticated_private_sender_allowlist", [])
+        authenticated_senders: set[str] = set()
+        if isinstance(raw_senders, list | tuple | set | frozenset):
+            authenticated_senders = {
+                str(value).strip()
+                for value in raw_senders
+                if str(value).strip()
+            }
 
         return cls(
             enabled=_as_bool(data.get("enabled"), True),
@@ -84,6 +118,25 @@ class Settings:
             ),
             reader_requests_per_minute=_clamp_int(
                 data.get("reader_requests_per_minute"), 12, 1, 18
+            ),
+            authenticated_enabled=_as_bool(
+                data.get("authenticated_enabled"), False
+            ),
+            authenticated_private_sender_allowlist=frozenset(
+                authenticated_senders
+            ),
+            authenticated_secret_file=(
+                raw_secret_file
+                or "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
+            ),
+            authenticated_timeout_seconds=_clamp_int(
+                data.get("authenticated_timeout_seconds"), 20, 5, 60
+            ),
+            authenticated_requests_per_minute=_clamp_int(
+                data.get("authenticated_requests_per_minute"), 3, 1, 6
+            ),
+            authenticated_cache_ttl_seconds=_clamp_int(
+                data.get("authenticated_cache_ttl_seconds"), 120, 30, 600
             ),
             max_content_chars=_clamp_int(
                 data.get("max_content_chars"), 12_000, 500, 30_000
