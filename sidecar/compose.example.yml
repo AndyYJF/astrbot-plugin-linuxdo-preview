@@ -45,6 +45,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      disable: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
