@@ -16,7 +16,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       LINUXDO_SECRET_FILE: /run/secrets/astrbot_plugin_linuxdo_preview.json
-      LINUXDO_BYPARR_TIMEOUT_SECONDS: "120"
+      LINUXDO_BYPARR_TIMEOUT_SECONDS: "40"
       LINUXDO_BROWSER_REQUEST_TIMEOUT_SECONDS: "30"
       PROXY_SERVER: http://host.docker.internal:7890
       HTTP_PROXY: http://host.docker.internal:7890
@@ -54,7 +54,7 @@ services:
       LINUXDO_DEVICE_RESPONSE_FILE: /run/bootstrap/device-response.json
       LINUXDO_DEVICE_TIMEOUT_SECONDS: "900"
       LINUXDO_DEVICE_RETRY_SECONDS: "10"
-      LINUXDO_BYPARR_TIMEOUT_SECONDS: "120"
+      LINUXDO_BYPARR_TIMEOUT_SECONDS: "180"
       LINUXDO_BROWSER_REQUEST_TIMEOUT_SECONDS: "30"
       PROXY_SERVER: http://host.docker.internal:7890
       HTTP_PROXY: http://host.docker.internal:7890

@@ -29,6 +29,19 @@ _CF_MARKERS = (
 )
 
 
+def _safe_error_type(body: bytes) -> str:
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    error_type = payload.get("error_type")
+    if not isinstance(error_type, str) or len(error_type) > 80:
+        return ""
+    return error_type
+
+
 def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(os.environ.get(name, str(default)))
@@ -159,6 +172,11 @@ async def _run() -> None:
                 await asyncio.sleep(retry_seconds)
                 continue
             if status != 200:
+                if status == 403 and _safe_error_type(body) == "invalid_access":
+                    raise RuntimeError(
+                        "Linux.do rejected the requested read User API scope "
+                        "(invalid_access)"
+                    )
                 raise RuntimeError(f"device endpoint HTTP {status}")
             try:
                 parsed = json.loads(body.decode("utf-8"))

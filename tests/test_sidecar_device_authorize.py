@@ -8,6 +8,7 @@ from sidecar.device_authorize import (
     _START_URL,
     _is_cf_challenge,
     _post_json,
+    _safe_error_type,
 )
 
 
@@ -63,3 +64,13 @@ def test_device_challenge_detection_is_bounded_and_explicit():
     assert _is_cf_challenge(403, {"cf-mitigated": "challenge"}, b"") is True
     assert _is_cf_challenge(503, {}, b"<title>Just a moment</title>") is True
     assert _is_cf_challenge(200, {}, b"challenge-platform") is False
+
+
+def test_device_error_type_parser_exposes_only_bounded_type():
+    assert _safe_error_type(
+        b'{"errors":["private"],"error_type":"invalid_access"}'
+    ) == "invalid_access"
+    assert _safe_error_type(b"private HTML") == ""
+    assert _safe_error_type(
+        ('{"error_type":"' + "x" * 81 + '"}').encode("utf-8")
+    ) == ""

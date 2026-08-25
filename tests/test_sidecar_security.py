@@ -10,7 +10,6 @@ from sidecar.protocol import (
 )
 from sidecar.security import (
     bearer_is_valid,
-    keep_only_cf_cookies,
     validate_topic_payload,
 )
 
@@ -26,20 +25,10 @@ def test_sidecar_request_accepts_only_one_numeric_topic_id():
             validate_topic_payload(payload)
 
 
-def test_sidecar_bearer_and_cookie_filter_are_fail_closed():
+def test_sidecar_bearer_is_fail_closed():
     token = "s" * 43
     assert bearer_is_valid(f"Bearer {token}", token) is True
     assert bearer_is_valid("Bearer wrong", token) is False
-    cookies = keep_only_cf_cookies(
-        [
-            {"name": "cf_clearance", "value": "clear", "domain": ".linux.do"},
-            {"name": "_forum_session", "value": "session", "domain": "linux.do"},
-            {"name": "cf_clearance", "value": "foreign", "domain": "example.com"},
-        ]
-    )
-    assert cookies == [
-        {"name": "cf_clearance", "value": "clear", "domain": ".linux.do"}
-    ]
 
 
 def test_sidecar_filters_to_exact_first_post():

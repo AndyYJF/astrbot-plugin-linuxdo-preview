@@ -13,19 +13,6 @@ _MAX_SECRET_BYTES = 16_384
 _CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._-]{8,128}")
 _USER_API_KEY_RE = re.compile(r"[A-Za-z0-9+/=_-]{20,512}")
 _SIDECAR_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
-_ALLOWED_CF_COOKIES = frozenset({"cf_clearance", "__cf_bm", "_cfuvid"})
-_COOKIE_FIELDS = (
-    "name",
-    "value",
-    "url",
-    "domain",
-    "path",
-    "expires",
-    "httpOnly",
-    "secure",
-    "sameSite",
-    "partitionKey",
-)
 
 
 class SidecarConfigError(RuntimeError):
@@ -91,15 +78,3 @@ def validate_topic_payload(payload: Any) -> int:
     if topic_id < 1 or topic_id > 2_147_483_647:
         raise ValueError("topic_id is out of range")
     return topic_id
-
-
-def keep_only_cf_cookies(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    kept: list[dict[str, Any]] = []
-    for cookie in cookies:
-        if cookie.get("name") not in _ALLOWED_CF_COOKIES:
-            continue
-        domain = str(cookie.get("domain", "")).lower().lstrip(".")
-        if domain != "linux.do" and not domain.endswith(".linux.do"):
-            continue
-        kept.append({key: cookie[key] for key in _COOKIE_FIELDS if key in cookie})
-    return kept

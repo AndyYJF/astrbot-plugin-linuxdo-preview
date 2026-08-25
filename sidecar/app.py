@@ -36,7 +36,7 @@ class SidecarApp:
             secret=self.secret,
             timeout_seconds=_bounded_env_int(
                 "LINUXDO_BYPARR_TIMEOUT_SECONDS",
-                120,
+                40,
                 30,
                 330,
             ),

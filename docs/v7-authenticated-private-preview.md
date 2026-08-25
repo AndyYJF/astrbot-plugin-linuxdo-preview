@@ -5,6 +5,11 @@
 状态：0.7.0 本地候选已实现，生产登录通道保持关闭。旧会话已撤销；当前用独立 LV1
 测试账号验证授权链路和等级不足提示，LV3 正向等级帖仍需在候选通过后单次验证。
 
+2026-08-25 生产探针确认 `/user-api-key/new` 宣告 Auth API v4 与设备码支持，但匿名创建
+`read` 设备授权时由 Discourse 返回 JSON `invalid_access`（HTTP 403），没有 CF challenge。
+按当前 Discourse 上游实现，这表示站点允许的 User API scope 或已注册客户端 scope 不接受
+本次 `read` 请求。未取得官方只读 Key 前，认证通道必须继续关闭；不能降级为 Cookie 登录。
+
 ## 安全边界
 
 - 不收集或保存 Linux.do 用户名、密码、Cookie、`_forum_session` 或 `cf_clearance`。

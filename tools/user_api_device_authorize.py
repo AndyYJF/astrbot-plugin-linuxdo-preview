@@ -85,6 +85,20 @@ def _post_json(
             raise AuthorizationError(
                 "Cloudflare challenge blocked device authorization"
             ) from exc
+        error_type = ""
+        try:
+            error_payload = json.loads(exc.read(MAX_HTTP_BYTES + 1).decode("utf-8"))
+            if isinstance(error_payload, dict) and isinstance(
+                error_payload.get("error_type"), str
+            ):
+                error_type = str(error_payload["error_type"])[:80]
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
+        if exc.code == 403 and error_type == "invalid_access":
+            raise AuthorizationError(
+                "Linux.do rejected the requested read User API scope "
+                "(invalid_access)"
+            ) from exc
         raise AuthorizationError(f"device authorization HTTP {exc.code}") from exc
     except (OSError, URLError, TimeoutError) as exc:
         raise AuthorizationError("device authorization network request failed") from exc
