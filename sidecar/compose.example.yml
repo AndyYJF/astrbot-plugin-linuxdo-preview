@@ -6,22 +6,26 @@ services:
     container_name: linuxdo-auth-sidecar
     restart: unless-stopped
     init: true
-    user: pwuser
-    shm_size: 1gb
+    user: "1000"
+    shm_size: 512mb
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "127.0.0.1:6080:6080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       LINUXDO_SECRET_FILE: /run/secrets/astrbot_plugin_linuxdo_preview.json
-      LINUXDO_BROWSER_PROFILE_DIR: /var/lib/linuxdo-browser
-      LINUXDO_PROXY_SERVER: http://host.docker.internal:7890
+      LINUXDO_BYPARR_TIMEOUT_SECONDS: "120"
+      LINUXDO_BROWSER_REQUEST_TIMEOUT_SECONDS: "30"
+      PROXY_SERVER: http://host.docker.internal:7890
+      HTTP_PROXY: http://host.docker.internal:7890
+      HTTPS_PROXY: http://host.docker.internal:7890
+      NO_PROXY: localhost,127.0.0.1,linuxdo-auth-sidecar
+      BROWSER_LOCALE: zh-CN
+      STEALTHFOX_GEOIP_MMDB: /opt/byparr/geoip/geoip-aio-all.mmdb
     volumes:
-      - ./runtime/browser-profile:/var/lib/linuxdo-browser
+      - ${LINUXDO_GEOIP_MMDB_FILE:?set LINUXDO_GEOIP_MMDB_FILE}:/opt/byparr/geoip/geoip-aio-all.mmdb:ro
       - /AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json:/run/secrets/astrbot_plugin_linuxdo_preview.json:ro
     networks:
       - astrbot
@@ -35,14 +39,12 @@ services:
     container_name: linuxdo-auth-bootstrap
     restart: "no"
     init: true
-    user: pwuser
-    shm_size: 1gb
+    user: "1000"
+    shm_size: 512mb
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "127.0.0.1:6080:6080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -50,10 +52,18 @@ services:
       LINUXDO_DEVICE_MODE: start
       LINUXDO_DEVICE_REQUEST_FILE: /run/bootstrap/device-request.json
       LINUXDO_DEVICE_RESPONSE_FILE: /run/bootstrap/device-response.json
-      LINUXDO_BROWSER_PROFILE_DIR: /var/lib/linuxdo-browser
-      LINUXDO_PROXY_SERVER: http://host.docker.internal:7890
+      LINUXDO_DEVICE_TIMEOUT_SECONDS: "900"
+      LINUXDO_DEVICE_RETRY_SECONDS: "10"
+      LINUXDO_BYPARR_TIMEOUT_SECONDS: "120"
+      LINUXDO_BROWSER_REQUEST_TIMEOUT_SECONDS: "30"
+      PROXY_SERVER: http://host.docker.internal:7890
+      HTTP_PROXY: http://host.docker.internal:7890
+      HTTPS_PROXY: http://host.docker.internal:7890
+      NO_PROXY: localhost,127.0.0.1
+      BROWSER_LOCALE: zh-CN
+      STEALTHFOX_GEOIP_MMDB: /opt/byparr/geoip/geoip-aio-all.mmdb
     volumes:
-      - ./runtime/browser-profile:/var/lib/linuxdo-browser
+      - ${LINUXDO_GEOIP_MMDB_FILE:?set LINUXDO_GEOIP_MMDB_FILE}:/opt/byparr/geoip/geoip-aio-all.mmdb:ro
       - ./runtime/bootstrap:/run/bootstrap
 
 networks:

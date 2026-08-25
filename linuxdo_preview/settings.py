@@ -42,7 +42,7 @@ class Settings:
     authenticated_secret_file: str = (
         "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
     )
-    authenticated_timeout_seconds: int = 20
+    authenticated_timeout_seconds: int = 45
     authenticated_requests_per_minute: int = 3
     authenticated_cache_ttl_seconds: int = 120
     max_response_bytes: int = 262_144
@@ -139,7 +139,7 @@ class Settings:
                 or "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
             ),
             authenticated_timeout_seconds=_clamp_int(
-                data.get("authenticated_timeout_seconds"), 20, 5, 60
+                data.get("authenticated_timeout_seconds"), 45, 5, 60
             ),
             authenticated_requests_per_minute=_clamp_int(
                 data.get("authenticated_requests_per_minute"), 3, 1, 6

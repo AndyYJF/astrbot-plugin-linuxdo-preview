@@ -20,8 +20,8 @@ class TopicRef:
     @property
     def authenticated_first_post_url(self) -> str:
         return (
-            f"https://linux.do/t/{self.topic_id}/posts.json"
-            "?post_number=1&include_raw=true"
+            f"https://linux.do/posts/by_number/{self.topic_id}/1.json"
+            "?include_raw=true"
         )
 
 

@@ -62,6 +62,19 @@ def test_sidecar_filters_to_exact_first_post():
         filter_first_post(b'{"posts":[]}', 123)
 
 
+def test_sidecar_accepts_only_matching_single_post_payload():
+    result = filter_first_post(
+        b'{"post_number":1,"topic_id":123,"raw":"owner"}',
+        123,
+    )
+    assert result["posts"][0]["raw"] == "owner"
+    with pytest.raises(UpstreamPayloadError):
+        filter_first_post(
+            b'{"post_number":1,"topic_id":999,"raw":"foreign"}',
+            123,
+        )
+
+
 def test_sidecar_device_bootstrap_accepts_only_fixed_read_protocol():
     public_key = (
         "-----BEGIN PUBLIC KEY-----\n"

@@ -8,8 +8,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from playwright.async_api import BrowserContext, async_playwright
-
+from .browser import LinuxDoBrowser
 from .protocol import (
     UpstreamPayloadError,
     validate_device_poll_request,
@@ -18,11 +17,16 @@ from .protocol import (
     validate_device_start_response,
 )
 
-_HOME_URL = "https://linux.do/"
 _START_URL = "https://linux.do/user-api-key/device.json"
 _POLL_URL = "https://linux.do/user-api-key/device/poll.json"
 _MAX_JSON_BYTES = 65_536
-_CF_MARKERS = (b"cf-chl-", b"just a moment", b"cloudflare challenge")
+_CF_MARKERS = (
+    b"cf-chl-",
+    b"just a moment",
+    b"cloudflare challenge",
+    b"verify you are human",
+    b"challenge-platform",
+)
 
 
 def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -81,24 +85,21 @@ def _is_cf_challenge(status: int, headers: dict[str, str], body: bytes) -> bool:
 
 
 async def _post_json(
-    context: BrowserContext,
+    browser: LinuxDoBrowser,
     *,
     url: str,
     payload: dict[str, str],
-    timeout_ms: int,
 ) -> tuple[int, dict[str, str], bytes]:
-    response = await context.request.post(
-        url,
-        data=payload,
-        headers={"Accept": "application/json"},
-        fail_on_status_code=False,
-        timeout=timeout_ms,
-    )
-    body = await response.body()
-    if len(body) > _MAX_JSON_BYTES:
+    if url == _START_URL:
+        mode = "start"
+    elif url == _POLL_URL:
+        mode = "poll"
+    else:
+        raise RuntimeError("device endpoint URL is not allowed")
+    response = await browser.post_device(mode, payload)
+    if len(response.body) > _MAX_JSON_BYTES:
         raise RuntimeError("device endpoint response is too large")
-    headers = {key.lower(): value for key, value in response.headers.items()}
-    return response.status, headers, body
+    return response.status, response.headers, response.body
 
 
 async def _run() -> None:
@@ -110,97 +111,87 @@ async def _run() -> None:
         mode=mode,
     )
     response_file = os.environ.get("LINUXDO_DEVICE_RESPONSE_FILE", "")
-    profile_dir = os.environ.get(
-        "LINUXDO_BROWSER_PROFILE_DIR",
-        "/var/lib/linuxdo-browser",
-    )
-    proxy_server = os.environ.get("LINUXDO_PROXY_SERVER", "").strip()
     timeout_seconds = _bounded_env_int(
         "LINUXDO_DEVICE_TIMEOUT_SECONDS",
         900,
         60,
         1800,
     )
-    request_timeout_ms = _bounded_env_int(
-        "LINUXDO_DEVICE_REQUEST_TIMEOUT_SECONDS",
-        20,
-        5,
-        60,
-    ) * 1000
     retry_seconds = _bounded_env_int(
         "LINUXDO_DEVICE_RETRY_SECONDS",
         10,
         5,
         30,
     )
-    launch_options: dict[str, object] = {
-        "headless": False,
-        "viewport": {"width": 1280, "height": 900},
-    }
-    if proxy_server:
-        launch_options["proxy"] = {"server": proxy_server}
-
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
-            profile_dir,
-            **launch_options,
-        )
-        try:
-            pages = context.pages
-            page = pages[0] if pages else await context.new_page()
+    browser = LinuxDoBrowser(
+        secret=None,
+        timeout_seconds=_bounded_env_int(
+            "LINUXDO_BYPARR_TIMEOUT_SECONDS",
+            120,
+            30,
+            330,
+        ),
+        request_timeout_seconds=_bounded_env_int(
+            "LINUXDO_BROWSER_REQUEST_TIMEOUT_SECONDS",
+            30,
+            5,
+            60,
+        ),
+        max_response_bytes=_MAX_JSON_BYTES,
+    )
+    endpoint = _START_URL if mode == "start" else _POLL_URL
+    deadline = monotonic() + timeout_seconds
+    challenge_reported = False
+    try:
+        while monotonic() < deadline:
+            status, headers, body = await _post_json(
+                browser,
+                url=endpoint,
+                payload=request_payload,
+            )
+            if _is_cf_challenge(status, headers, body):
+                if not challenge_reported:
+                    print(
+                        "Byparr 尚未清除 Cloudflare 校验，正在限速重试。",
+                        flush=True,
+                    )
+                    challenge_reported = True
+                await asyncio.sleep(retry_seconds)
+                continue
+            if status != 200:
+                raise RuntimeError(f"device endpoint HTTP {status}")
             try:
-                await page.goto(
-                    _HOME_URL,
-                    wait_until="domcontentloaded",
-                    timeout=request_timeout_ms,
+                parsed = json.loads(body.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise RuntimeError("device endpoint returned invalid JSON") from exc
+            if mode == "start":
+                validated = validate_device_start_response(parsed)
+                _write_response(response_file, validated)
+                print(
+                    "Byparr 已创建只读设备授权请求；响应已安全写入挂载目录。",
+                    flush=True,
                 )
-            except Exception:
-                pass
+                return
+            validated = validate_device_poll_response(parsed)
+            if validated["status"] == "authorization_pending":
+                await asyncio.sleep(retry_seconds)
+                continue
+            _write_response(response_file, validated)
             print(
-                "浏览器已打开；如出现 Cloudflare 校验，请通过本机 noVNC 手动完成。",
+                "Byparr 设备授权轮询已结束；响应已安全写入挂载目录。",
                 flush=True,
             )
-            endpoint = _START_URL if mode == "start" else _POLL_URL
-            deadline = monotonic() + timeout_seconds
-            while monotonic() < deadline:
-                status, headers, body = await _post_json(
-                    context,
-                    url=endpoint,
-                    payload=request_payload,
-                    timeout_ms=request_timeout_ms,
-                )
-                if _is_cf_challenge(status, headers, body):
-                    await asyncio.sleep(retry_seconds)
-                    continue
-                if status != 200:
-                    raise RuntimeError(f"device endpoint HTTP {status}")
-                try:
-                    parsed = json.loads(body.decode("utf-8"))
-                except (UnicodeError, json.JSONDecodeError) as exc:
-                    raise RuntimeError("device endpoint returned invalid JSON") from exc
-                if mode == "start":
-                    validated = validate_device_start_response(parsed)
-                    _write_response(response_file, validated)
-                    print("设备授权请求已创建；响应已安全写入挂载目录。", flush=True)
-                    return
-                validated = validate_device_poll_response(parsed)
-                status_name = validated["status"]
-                if status_name == "authorization_pending":
-                    await asyncio.sleep(retry_seconds)
-                    continue
-                _write_response(response_file, validated)
-                print("设备授权轮询已结束；响应已安全写入挂载目录。", flush=True)
-                return
-            raise RuntimeError("device authorization browser timeout")
-        finally:
-            await context.close()
+            return
+        raise RuntimeError("device authorization browser timeout")
+    finally:
+        await browser.close()
 
 
 def main() -> None:
     try:
         asyncio.run(_run())
     except (RuntimeError, UpstreamPayloadError) as exc:
-        raise SystemExit(f"设备授权浏览器失败：{exc}") from exc
+        raise SystemExit(f"Byparr 设备授权失败：{exc}") from exc
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # V7 受限帖绑定 QQ 预览
 
-日期：2026-08-24
+日期：2026-08-25
 
 状态：0.7.0 本地候选已实现，生产登录通道保持关闭。旧会话已撤销；当前用独立 LV1
 测试账号验证授权链路和等级不足提示，LV3 正向等级帖仍需在候选通过后单次验证。
@@ -45,25 +45,30 @@ Linux 生产文件权限必须为 `0600`。运行时拒绝相对路径、符号�
 
 1. handler 用 QQ sender_id、group_id 与群聊开关做 fail-closed 授权判定。
 2. 获准 QQ 消息绕过公开 Reader，直接进入认证 fetcher；未获准会话保持公开链路。
-3. fetcher 从独立文件读取 key，使用固定请求头和固定数字 ID URL，且禁止重定向。
+3. fetcher 从独立文件读取 key，并把数字 topic ID 交给内网 sidecar；sidecar 在同一个
+   Byparr Firefox 页面内构造固定首帖 URL、添加固定 User API 请求头并禁止重定向。
 4. service 清洗首帖并写入包含 QQ sender_id 与私聊/群号的认证内存缓存，不写公开缓存。
 5. handler 不调用 T2I，只构造授权状态、文本分片和已验证独立图片的合并转发。
 
-## Cloudflare 现状
+## Cloudflare 与 Byparr 现状
 
 生产出口对 `/about.json` 和 `/user-api-key/new` 的匿名普通 HTTP 探针均返回
 Cloudflare 403 managed challenge。这说明 User API Key 只解决 Discourse 身份，不能被假设为
 自动解决 Cloudflare。
+
+已验证普通 HTTP 客户端即使重放 Byparr 浏览器取得的 UA 与 CF Cookie，仍会返回 403；因此
+不能导出 Cookie 给 `aiohttp`。候选改用 Byparr 3.0.4 的同浏览器模式：Byparr 在 Firefox
+页面内完成 challenge，之后仍由这个页面执行固定的 Discourse 请求。公开验证中，固定首帖
+接口 `/posts/by_number/2795372/1.json?include_raw=true` 已取得 HTTP 200 与首帖 raw。
 
 上线顺序必须是：
 
 1. 用户在自己的已登录浏览器中批准只读 User API Key；密钥通过授权工具直接落到生产
    secret 文件，不经过聊天和普通配置。
 2. 用一个用户明确指定的等级测试帖，在生产固定出口做不发 QQ 的单次 keyed probe。
-3. 若仍为 challenge，保持插件认证开关关闭，改用自托管 Playwright/Chromium sidecar。
-4. sidecar 只暴露“数字 topic ID -> 首帖 JSON”的内网窄接口，不暴露 Cookie 导出、
-   任意 URL、写请求或批量接口；清除论坛 session Cookie，仅保留 CF clearance 并继续用
-   read User API Key 做 Discourse 身份。
+3. 保持插件认证开关关闭，由固定版本 Byparr sidecar 在同一浏览器页面中完成挑战与请求。
+4. sidecar 只暴露“数字 topic ID -> 首帖 JSON”的内网窄接口，不暴露 Cookie、浏览器控制面、
+   任意 URL、任意方法或批量接口；继续用 `read` User API Key 做 Discourse 身份。
 5. 候选通过后再通过运行配置绑定 QQ sender_id。群聊测试必须额外开启群聊开关，并确认
    测试群只有预期成员；完成后立即关闭。QQ 号不得写入源码、默认配置、测试或 Git。
 
@@ -108,18 +113,28 @@ python -m tools.user_api_device_authorize prepare-browser \
   --work-dir "C:/Users/<you>/AppData/Local/astrbot-linuxdo-auth"
 ```
 
+先下载并校验 Byparr 要求的 GeoIP MMDB，放到只有管理员可修改的位置。当前已验证的文件是
+`geoip-aio-all-2026.08.19.mmdb`，SHA-256 为
+`8fcea16cf10f54b8a70930eb51cd3ee8c5fd949e7b469d44c155964a156952d4`。把绝对路径写入
+`LINUXDO_GEOIP_MMDB_FILE`，compose 会只读挂载它；缺少该变量时直接拒绝启动。
+
 把生成的 `device-request.json` 通过文件传输放入 sidecar 的 `runtime/bootstrap/`，不要粘贴到
-聊天。启动一次性浏览器容器：
+聊天。启动一次性 Byparr 容器：
 
 ```bash
-docker compose -f sidecar/compose.example.yml --profile bootstrap \
-  run --service-ports --rm linuxdo-auth-bootstrap
+LINUXDO_GEOIP_MMDB_FILE=/absolute/path/geoip-aio-all-2026.08.19.mmdb \
+  docker compose -f sidecar/compose.example.yml --profile bootstrap \
+  run --rm linuxdo-auth-bootstrap
 ```
 
-noVNC 只绑定 `127.0.0.1:6080`。远程主机应通过 SSH 隧道访问
-`http://127.0.0.1:6080/vnc.html`；只完成 CF 校验，不在 sidecar 中登录 Linux.do。容器使用
-同一浏览器上下文发送固定 JSON，成功后写出 `device-response.json`，不在日志打印设备码。
-镜像基于固定 Python slim，并只安装与 Python 包同版本的 Chromium；不下载 Firefox/WebKit。
+容器使用 Byparr 的 InvisiblePlaywright Firefox 自动处理 challenge，并在同一页面内向固定
+设备接口发送 JSON。成功后只写出 `device-response.json`，不在日志打印设备码或响应正文。
+它不发布 noVNC、CDP、HTTP 或其他主机端口，也不提供通用浏览器代理。
+
+`PROXY_SERVER` 是 Firefox 的显式代理；compose 示例同时设置 `HTTP_PROXY` 与
+`HTTPS_PROXY`，仅 `localhost/127.0.0.1` 直连。因此页面和子资源使用同一个代理出口。
+基础镜像固定为 `ghcr.io/thephaseless/byparr:3.0.4` 的多架构 digest
+`sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6`，不会在运行时漂移。
 
 把响应文件下载回同一授权会话目录并记录：
 
@@ -134,8 +149,9 @@ python -m tools.user_api_device_authorize record-browser \
 `read` 后批准。随后把工具生成的 `poll-request.json` 传给同一 sidecar profile：
 
 ```bash
-docker compose -f sidecar/compose.example.yml --profile bootstrap \
-  run --service-ports --rm \
+LINUXDO_GEOIP_MMDB_FILE=/absolute/path/geoip-aio-all-2026.08.19.mmdb \
+  docker compose -f sidecar/compose.example.yml --profile bootstrap \
+  run --rm \
   -e LINUXDO_DEVICE_MODE=poll \
   -e LINUXDO_DEVICE_REQUEST_FILE=/run/bootstrap/poll-request.json \
   -e LINUXDO_DEVICE_RESPONSE_FILE=/run/bootstrap/poll-response.json \
@@ -152,8 +168,15 @@ python -m tools.user_api_device_authorize complete-browser \
 ```
 
 最后才把生成的 secret 以 `0600` 放入生产机 secret 目录，启动常驻 sidecar，并在候选配置中
-启用登录通道。常驻 sidecar 的 `8787` 不映射到主机，只加入 AstrBot Docker 网络；noVNC
-只绑定 loopback。公开 Reader 链路和当前稳定插件在整个授权阶段保持不变。
+启用登录通道。常驻 sidecar 的 `8787` 不映射到主机，只加入 AstrBot Docker 网络。
+公开 Reader 链路和当前稳定插件在整个授权阶段保持不变。
+
+实现与排障依据：
+
+- [Byparr v3.0.4 发布页](https://github.com/ThePhaseless/Byparr/releases/tag/v3.0.4)
+- [Byparr 固定 GET 入口实现](https://github.com/ThePhaseless/Byparr/blob/v3.0.4/src/endpoints.py)
+- [Byparr 浏览器启动与 GeoIP 配置](https://github.com/ThePhaseless/Byparr/blob/v3.0.4/src/utils.py)
+- [Byparr challenge 检测与处理](https://github.com/ThePhaseless/Byparr/blob/v3.0.4/src/challenge.py)
 
 ## 后备：旧版 RSA 回调助手
 

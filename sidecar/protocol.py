@@ -104,22 +104,29 @@ def filter_first_post(body: bytes, topic_id: int) -> dict[str, Any]:
         raise UpstreamPayloadError("upstream response is not JSON") from exc
     if not isinstance(payload, dict):
         raise UpstreamPayloadError("upstream response root is invalid")
-    post_stream = payload.get("post_stream")
-    posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
-    if not isinstance(posts, list):
-        posts = payload.get("posts")
-    if not isinstance(posts, list):
-        raise UpstreamPayloadError("upstream response omitted posts")
-    first = next(
-        (
-            post
-            for post in posts
-            if isinstance(post, dict)
-            and post.get("post_number") == 1
-            and post.get("topic_id", topic_id) == topic_id
-        ),
-        None,
-    )
+    first: dict[str, Any] | None = None
+    if (
+        payload.get("post_number") == 1
+        and payload.get("topic_id") == topic_id
+    ):
+        first = payload
+    else:
+        post_stream = payload.get("post_stream")
+        posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
+        if not isinstance(posts, list):
+            posts = payload.get("posts")
+        if not isinstance(posts, list):
+            raise UpstreamPayloadError("upstream response omitted posts")
+        first = next(
+            (
+                post
+                for post in posts
+                if isinstance(post, dict)
+                and post.get("post_number") == 1
+                and post.get("topic_id", topic_id) == topic_id
+            ),
+            None,
+        )
     if first is None or not isinstance(first.get("raw"), str):
         raise UpstreamPayloadError("upstream response omitted first post raw")
     title = payload.get("title") or first.get("topic_title") or ""

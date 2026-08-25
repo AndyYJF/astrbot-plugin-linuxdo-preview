@@ -108,26 +108,32 @@ def parse_authenticated_topic_response(body: str, topic_id: int) -> FetchedTopic
             "authenticated response root was not an object",
         )
 
-    post_stream = payload.get("post_stream")
-    posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
-    if not isinstance(posts, list):
-        posts = payload.get("posts")
-    if not isinstance(posts, list):
-        raise FetchError(
-            FetchErrorCode.UNAVAILABLE,
-            "authenticated response omitted posts",
+    first_post: dict[str, object] | None = None
+    if (
+        payload.get("post_number") == 1
+        and payload.get("topic_id") == topic_id
+    ):
+        first_post = payload
+    else:
+        post_stream = payload.get("post_stream")
+        posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
+        if not isinstance(posts, list):
+            posts = payload.get("posts")
+        if not isinstance(posts, list):
+            raise FetchError(
+                FetchErrorCode.UNAVAILABLE,
+                "authenticated response omitted posts",
+            )
+        first_post = next(
+            (
+                post
+                for post in posts
+                if isinstance(post, dict)
+                and post.get("post_number") == 1
+                and post.get("topic_id", topic_id) == topic_id
+            ),
+            None,
         )
-
-    first_post = next(
-        (
-            post
-            for post in posts
-            if isinstance(post, dict)
-            and post.get("post_number") == 1
-            and post.get("topic_id", topic_id) == topic_id
-        ),
-        None,
-    )
     if first_post is None:
         raise FetchError(
             FetchErrorCode.UNAVAILABLE,
@@ -186,23 +192,8 @@ class LinuxDoFetcher:
             ) from exc
 
         await self._acquire_authenticated_slot()
-        request_headers = {
-            **_AUTHENTICATED_HEADERS,
-            "User-Api-Key": credentials.user_api_key,
-            "User-Api-Client-Id": credentials.user_api_client_id,
-        }
-        status, headers, body = await self._request(
-            ref.authenticated_first_post_url,
-            timeout_seconds=self._settings.authenticated_timeout_seconds,
-            request_headers=request_headers,
-            allow_redirects=False,
-        )
-        if is_cloudflare_challenge(status, headers, body):
-            if not credentials.sidecar_token:
-                raise FetchError(
-                    FetchErrorCode.CHALLENGE,
-                    "authenticated endpoint returned challenge",
-                )
+        used_sidecar = bool(credentials.sidecar_token)
+        if used_sidecar:
             status, headers, body = await self._request_sidecar(
                 ref,
                 credentials.sidecar_token,
@@ -210,12 +201,29 @@ class LinuxDoFetcher:
             if status == 409:
                 raise FetchError(
                     FetchErrorCode.CHALLENGE,
-                    "sidecar browser clearance is unavailable",
+                    "Byparr browser clearance is unavailable",
                 )
-            if status == 401:
+            if status == 401 and '"unauthorized"' in body:
                 raise FetchError(
                     FetchErrorCode.AUTH_UNAVAILABLE,
                     "sidecar authentication failed",
+                )
+        else:
+            request_headers = {
+                **_AUTHENTICATED_HEADERS,
+                "User-Api-Key": credentials.user_api_key,
+                "User-Api-Client-Id": credentials.user_api_client_id,
+            }
+            status, headers, body = await self._request(
+                ref.authenticated_first_post_url,
+                timeout_seconds=self._settings.authenticated_timeout_seconds,
+                request_headers=request_headers,
+                allow_redirects=False,
+            )
+            if is_cloudflare_challenge(status, headers, body):
+                raise FetchError(
+                    FetchErrorCode.CHALLENGE,
+                    "authenticated endpoint returned challenge",
                 )
         if status == 401:
             raise FetchError(

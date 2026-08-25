@@ -70,8 +70,8 @@
   "authenticated_timeout_seconds": {
     "description": "登录 API 请求超时秒数",
     "type": "int",
-    "default": 20,
-    "hint": "范围 5-60；请求固定为 linux.do 单个首帖 JSON，且禁止跟随重定向。"
+    "default": 45,
+    "hint": "范围 5-60；Byparr 在同一 Firefox 页面中请求固定首帖 JSON，且禁止跟随重定向。"
   },
   "authenticated_requests_per_minute": {
     "description": "登录通道每分钟最大请求数",

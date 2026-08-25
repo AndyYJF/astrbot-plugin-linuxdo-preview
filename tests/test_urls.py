@@ -9,7 +9,7 @@ def test_extracts_supported_topic_and_raw_variants_in_order():
     assert [ref.topic_id for ref in refs] == [2045356, 2349758]
     assert refs[0].raw_first_post_url == "https://linux.do/raw/2045356/1"
     assert refs[0].authenticated_first_post_url == (
-        "https://linux.do/t/2045356/posts.json?post_number=1&include_raw=true"
+        "https://linux.do/posts/by_number/2045356/1.json?include_raw=true"
     )
 
 

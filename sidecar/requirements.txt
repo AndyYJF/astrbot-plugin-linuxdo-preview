@@ -1,2 +1,2 @@
-aiohttp==3.12.15
-playwright==1.62.0
+# Runtime packages are supplied by the digest-pinned official Byparr 3.0.4 image.
+# This file is intentionally dependency-free to prevent version drift at build time.

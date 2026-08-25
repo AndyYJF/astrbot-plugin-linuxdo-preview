@@ -148,6 +148,16 @@ def test_parses_only_authenticated_first_post_and_title():
     assert fetched.source == "discourse-user-api"
 
 
+def test_parses_authenticated_single_post_response():
+    fetched = parse_authenticated_topic_response(
+        '{"post_number":1,"topic_id":123,"raw":"单楼正文"}',
+        123,
+    )
+
+    assert fetched.title == "LINUX DO 帖子 #123"
+    assert fetched.content == "单楼正文"
+
+
 async def test_authenticated_fetch_uses_fixed_headers_and_disables_redirects(
     monkeypatch,
 ):
@@ -188,7 +198,7 @@ async def test_authenticated_fetch_uses_fixed_headers_and_disables_redirects(
     )
 
     assert captured["url"] == (
-        "https://linux.do/t/123/posts.json?post_number=1&include_raw=true"
+        "https://linux.do/posts/by_number/123/1.json?include_raw=true"
     )
     assert captured["allow_redirects"] is False
     assert captured["request_headers"]["User-Api-Key"] == "A" * 40
@@ -208,7 +218,7 @@ async def test_authenticated_rate_limit_fails_fast():
     await fetcher.close()
 
 
-async def test_authenticated_fetch_falls_back_to_fixed_sidecar_on_cf(monkeypatch):
+async def test_authenticated_fetch_uses_fixed_sidecar_before_direct_http(monkeypatch):
     settings = Settings(
         authenticated_enabled=True,
         authenticated_secret_file="/unused/test-secret.json",
@@ -224,7 +234,7 @@ async def test_authenticated_fetch_falls_back_to_fixed_sidecar_on_cf(monkeypatch
     )
 
     async def fake_request(*_args, **_kwargs):
-        return 403, {"cf-mitigated": "challenge"}, "challenge"
+        raise AssertionError("direct HTTP must not receive a configured User API Key")
 
     captured = {}
 
