@@ -28,6 +28,20 @@ _MEDIA_URL_RE = re.compile(
 _EMPTY_LINK_RE = re.compile(r"(?<!!)\[\s*\]\([^()\n]{0,500}\)")
 _LINK_RE = re.compile(r"\[(?P<label>[^\]]+)\]\((?P<url>https?://[^\s)]+)\)")
 _HTML_TAG_RE = re.compile(r"<[^>]{1,500}>")
+_COOKED_IMAGE_TAG_RE = re.compile(r"<img\b[^>]{0,1000}>", re.I)
+_COOKED_IMAGE_ATTR_RE = re.compile(
+    r"\b(?P<attr>src|alt|class)\s*=\s*\"(?P<value>[^\"]{0,2000})\"",
+    re.I,
+)
+_COOKED_ONEBOX_RE = re.compile(
+    r"<aside\b[^>]{0,300}\bclass=\"[^\"]*\bonebox\b[^\"]*\"[^>]{0,300}>.*?</aside>",
+    re.I | re.S,
+)
+_COOKED_DECORATIVE_CLASS_RE = re.compile(
+    r"\b(?:site-icon|thumbnail|avatar|emoji)\b",
+    re.I,
+)
+_UPLOAD_PLACEHOLDER_RE = re.compile(r"\[图片暂未展示(?:：[^\]]*)?\]")
 _DETAILS_OPEN_RE = re.compile(r"\[details(?:=\"?(?P<title>[^\]\"]+)\"?)?\]", re.I)
 _QUOTE_OPEN_RE = re.compile(r"\[quote(?:=\"?(?P<who>[^\]\"]+)\"?)?\]", re.I)
 
@@ -158,6 +172,71 @@ def clean_discourse_content(
         truncated=truncated,
         images=visible_refs,
         total_image_count=image_count,
+    )
+
+
+def merge_cooked_images(
+    cleaned: CleanedTopicContent,
+    cooked: str,
+    max_images: int,
+) -> CleanedTopicContent:
+    """Merge absolute HTTPS images that exist only in Discourse cooked HTML.
+
+    Authenticated single-post raw markdown does not always carry image syntax
+    (for example oneboxed uploads), so the rendered ``cooked`` HTML is the only
+    place those post images appear. Onebox preview thumbnails/site icons are
+    excluded. Newly found images replace ``[图片暂未展示…]`` placeholders left
+    by unresolvable ``upload://`` raw refs in document order; any remainder is
+    appended after the text in cooked order.
+    """
+    if not cooked.strip():
+        return cleaned
+    body = _COOKED_ONEBOX_RE.sub("", cooked)
+    known = {image.source_url for image in cleaned.images}
+    known.update(
+        image.preview_url for image in cleaned.images if image.preview_url
+    )
+    text = cleaned.text
+    images = list(cleaned.images)
+    found = 0
+    appended = 0
+    for tag_match in _COOKED_IMAGE_TAG_RE.finditer(body):
+        attributes = {
+            attr.group("attr").lower(): attr.group("value")
+            for attr in _COOKED_IMAGE_ATTR_RE.finditer(tag_match.group(0))
+        }
+        url = attributes.get("src", "")
+        if (
+            not url.startswith(("https://", "http://"))
+            or "/images/emoji/" in url
+            or _COOKED_DECORATIVE_CLASS_RE.search(attributes.get("class", ""))
+            or url in known
+        ):
+            continue
+        found += 1
+        known.add(url)
+        if len(images) >= max(0, max_images):
+            continue
+        appended += 1
+        alt = re.sub(r"^Image\s+\d+\s*:\s*", "", attributes.get("alt", ""), flags=re.I)
+        image = TopicImage(
+            position=len(images) + 1,
+            alt=alt.split("|")[0].strip()[:80],
+            source_url=url,
+        )
+        images.append(image)
+        text, replaced = _UPLOAD_PLACEHOLDER_RE.subn(image.marker, text, count=1)
+        if not replaced:
+            text = f"{text}\n\n{image.marker}" if text else image.marker
+    if found > appended:
+        text = (
+            f"{text}\n\n[另有 {found - appended} 张图片暂未展示]"
+        ).strip()
+    return CleanedTopicContent(
+        text=text,
+        truncated=cleaned.truncated,
+        images=tuple(images),
+        total_image_count=cleaned.total_image_count + found,
     )
 
 

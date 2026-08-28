@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+sidecar/runtime/
 
 # Build and generated artifacts
 dist/
@@ -15,6 +16,8 @@ references/
 task_plan.md
 findings.md
 progress.md
+.tmp/
+.tmp-*
 
 # One-off development and production-operation helpers
 scripts/*
@@ -22,3 +25,6 @@ scripts/*
 !scripts/build_package.sh
 !scripts/setup_test_env.sh
 !scripts/validate_local.sh
+
+# Release archives
+*.tar.gz

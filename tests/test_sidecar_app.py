@@ -4,7 +4,7 @@ import pytest
 
 from sidecar import app as app_module
 from sidecar.app import SidecarApp
-from sidecar.browser import BrowserResponse
+from sidecar.browser import BrowserResponse, BrowserSessionExpired
 from sidecar.security import SidecarSecret
 
 
@@ -87,4 +87,24 @@ async def test_sidecar_topic_maps_browser_challenge_without_body_leak(monkeypatc
     )
 
     assert (status, payload) == (409, {"error": "clearance_required"})
+    assert "private" not in str(payload)
+
+
+@pytest.mark.asyncio
+async def test_sidecar_topic_maps_expired_session_without_detail_leak(monkeypatch):
+    service = _service(
+        monkeypatch,
+        BrowserResponse(200, {}, b"{}"),
+    )
+
+    async def expired(_topic_id):
+        raise BrowserSessionExpired("private browser detail")
+
+    service.browser.fetch_first_post = expired
+    status, payload = await service.topic(
+        authorization=f"Bearer {'s' * 43}",
+        raw_body=b'{"topic_id":123}',
+    )
+
+    assert (status, payload) == (401, {"error": "session_expired"})
     assert "private" not in str(payload)

@@ -2,24 +2,29 @@
 
 日期：2026-08-25
 
-状态：0.7.0 本地候选已实现，生产登录通道保持关闭。旧会话已撤销；当前用独立 LV1
-测试账号验证授权链路和等级不足提示，LV3 正向等级帖仍需在候选通过后单次验证。
+状态：0.8.0 隔离浏览器会话候选正在验证，生产登录通道保持关闭。用户已授权仅用测试账号
+验证受限帖 `2810055`，范围固定为标题与楼主首帖、单消息一个链接、每分钟三次、不抓回复、
+不批量获取；QQ sender 只写运行配置，并允许在私有测试群中验收。
 
 2026-08-25 生产探针确认 `/user-api-key/new` 宣告 Auth API v4 与设备码支持，但匿名创建
 `read` 设备授权时由 Discourse 返回 JSON `invalid_access`（HTTP 403），没有 CF challenge。
 按当前 Discourse 上游实现，这表示站点允许的 User API scope 或已注册客户端 scope 不接受
-本次 `read` 请求。未取得官方只读 Key 前，认证通道必须继续关闭；不能降级为 Cookie 登录。
+本次 `read` 请求。用户随后明确授权了隔离浏览器会话方案：登录材料只在回环 noVNC 页面由
+用户本人输入，侧车保存过滤后的 Linux.do Playwright storage state。这个方案不把 Cookie
+粘贴进聊天/配置，也不增加任意 URL、Cookie 导出或浏览器控制 HTTP 接口。
 
 ## 安全边界
 
-- 不收集或保存 Linux.do 用户名、密码、Cookie、`_forum_session` 或 `cf_clearance`。
-- 只接受 Discourse 官方、用户明确批准且可撤销的 `read` User API Key。
+- 不收集或保存 Linux.do 用户名、密码或 MFA；不接受用户复制粘贴 Cookie。
+- 支持 Discourse 官方 `read` User API Key（v1）或用户明确授权的隔离浏览器会话（v2）。
+  v2 storage state 是账号凭据，只能保存在独立 `0600` 文件，不得进入聊天、Git、普通配置或日志。
 - 默认只有 allowlist 中的 QQ sender_id 且消息为私聊时才进入认证通道。开发测试可显式开启
   群聊，但仍只有 allowlist 中的发送者可触发，缓存键同时包含 QQ 与群号；正文会对群成员可见。
 - 每条获准 QQ 消息最多处理一个 Linux.do 链接，每分钟最多三次认证请求。
 - 请求目标由数字 topic ID 构造，固定为 Linux.do HTTPS 首帖 JSON；禁止跟随重定向。
 - 响应只接受 `post_number == 1` 的 `raw`，403/404 视为账号无权访问，不尝试绕过。
-- 认证正文和认证材料不经过 Jina Reader 或第三方 T2I。输出固定为 QQ 文本合并转发，
+- 认证正文和认证材料不经过 Jina Reader。0.9.0 起授权帖与公开帖一样经本 AstrBot 配置的
+  T2I 渲染长图（用户明确要求）；T2I 失败时在同一合并转发中回退纯文本。
   可安全取得的帖子图片仍以独立 QQ 图片节点发送。
 - 公开缓存与认证缓存完全分离；认证缓存键包含 QQ 主体，重启即清空。
 
@@ -43,17 +48,60 @@ AstrBot 普通配置只记录 secret 文件的绝对路径，不记录密钥。�
 }
 ```
 
+当站点拒绝新的 `read` User API 客户端、且用户明确授权隔离会话时，使用 version 2：
+
+```json
+{
+  "version": 2,
+  "site": "https://linux.do",
+  "auth_mode": "browser_session",
+  "sidecar_token": "由部署端随机生成的 32–128 位 URL-safe bearer token",
+  "browser_seed": 123456789
+}
+```
+
+version 2 secret 不允许出现 `user_api_key` 或 `user_api_client_id`。它与真正的浏览器会话
+文件分离；插件进程只读取 bearer token，不读取 storage state。侧车通过
+`LINUXDO_SESSION_STATE_FILE=/run/session/linuxdo-storage-state.json` 读取会话文件。
+
 Linux 生产文件权限必须为 `0600`。运行时拒绝相对路径、符号链接、非普通文件、
-超大/无效 JSON、错误站点、格式异常的 key，以及任何组/其他用户可读写权限。
+超大/无效 JSON、错误站点、格式异常的 key/seed，以及任何组/其他用户可读写权限。
+storage state 同样要求绝对路径、普通文件、非符号链接、最大 512 KiB 和 `0600`；只保留
+`linux.do` Cookie 与 `https://linux.do` localStorage，第三方登录域数据不会写入最终文件。
 
 ## 处理流程
 
 1. handler 用 QQ sender_id、group_id 与群聊开关做 fail-closed 授权判定。
 2. 获准 QQ 消息绕过公开 Reader，直接进入认证 fetcher；未获准会话保持公开链路。
-3. fetcher 从独立文件读取 key，并把数字 topic ID 交给内网 sidecar；sidecar 在同一个
-   Byparr Firefox 页面内构造固定首帖 URL、添加固定 User API 请求头并禁止重定向。
+3. fetcher 从独立文件读取认证模式，并把数字 topic ID 交给内网 sidecar；sidecar 在同一个
+   Byparr Firefox 页面内构造固定首帖 URL。v1 添加固定 User API 请求头，v2 使用已验证的
+   Linux.do 浏览器会话；两者都禁止重定向。
 4. service 清洗首帖并写入包含 QQ sender_id 与私聊/群号的认证内存缓存，不写公开缓存。
-5. handler 不调用 T2I，只构造授权状态、文本分片和已验证独立图片的合并转发。
+5. handler 复用公开通道的缓存键隔离渲染管线构造合并转发：授权状态 + T2I 长图 + 已验证独立图片；
+   T2I 失败时在同一转发中回退为授权状态 + 文本分片 + 同一批独立图片。
+
+## 隔离浏览器会话引导
+
+会话引导是单独的 compose profile 与 Docker build target，正常运行镜像不会安装/发布
+noVNC。引导容器的 noVNC 只绑定宿主机 `127.0.0.1`，Firefox 页面流量全部走与运行侧车相同
+的代理出口；HTTP sidecar 在整个登录过程中仍未启动。
+
+准备仅用户 1000 可写的目录、version 2 secret 和固定 GeoIP 后运行：
+
+```bash
+LINUXDO_GEOIP_MMDB_FILE=/absolute/path/geoip-aio-all-2026.08.19.mmdb docker compose -f sidecar/compose.example.yml --profile session-login run --rm --service-ports linuxdo-session-login
+```
+
+只从本机或受控 SSH 隧道打开：
+
+```text
+http://127.0.0.1:16080/vnc.html?autoconnect=1&resize=scale
+```
+
+用户在该页面自行完成登录、MFA 和 CF 验证。程序只对固定
+`https://linux.do/session/current.json` 做登录状态检查，不读取用户名，不打印响应；确认已
+登录后过滤 storage state、以 `0600` 原子写入并退出，noVNC 随容器一起关闭。运行侧车每次
+固定首帖请求前再次确认会话仍登录；过期只返回 `session_expired`，不会降级到公开 Reader。
 
 ## Cloudflare 与 Byparr 现状
 
@@ -68,12 +116,12 @@ Cloudflare 403 managed challenge。这说明 User API Key 只解决 Discourse �
 
 上线顺序必须是：
 
-1. 用户在自己的已登录浏览器中批准只读 User API Key；密钥通过授权工具直接落到生产
-   secret 文件，不经过聊天和普通配置。
-2. 用一个用户明确指定的等级测试帖，在生产固定出口做不发 QQ 的单次 keyed probe。
+1. 优先尝试用户批准的只读 User API Key；若站点像当前实测一样返回 `invalid_access`，
+   只有在用户明确授权后才创建 version 2 隔离会话。
+2. 用一个用户明确指定的等级测试帖，在生产固定出口做不发 QQ 的单次候选 probe。
 3. 保持插件认证开关关闭，由固定版本 Byparr sidecar 在同一浏览器页面中完成挑战与请求。
 4. sidecar 只暴露“数字 topic ID -> 首帖 JSON”的内网窄接口，不暴露 Cookie、浏览器控制面、
-   任意 URL、任意方法或批量接口；继续用 `read` User API Key 做 Discourse 身份。
+   任意 URL、任意方法或批量接口；身份只能来自 `read` User API Key 或过滤后的隔离会话。
 5. 候选通过后再通过运行配置绑定 QQ sender_id。群聊测试必须额外开启群聊开关，并确认
    测试群只有预期成员；完成后立即关闭。QQ 号不得写入源码、默认配置、测试或 Git。
 
@@ -85,7 +133,8 @@ Cloudflare 403 managed challenge。这说明 User API Key 只解决 Discourse �
 - 确认已撤销曾粘贴到聊天的旧 Linux.do 会话并重新登录；
 - 同意在浏览器里批准只含 `read` scope 的 User API Key。
 
-不需要也不能提供 Cookie、密码、短信/MFA 验证码或明文 User API Key。
+不需要也不能提供 Cookie、密码、短信/MFA 验证码或明文 User API Key；隔离会话模式由用户
+直接在回环浏览器页面输入登录材料。
 
 ## 首选：设备码只读授权助手
 
@@ -211,5 +260,6 @@ python tools/user_api_authorize.py complete \
 ## 回滚与停用
 
 任何异常都先把 `authenticated_enabled` 设为 `false` 并重载插件；公开帖链路不依赖认证
-secret。随后在 Linux.do 撤销对应 User API Key，保留候选/旧版本目录以便恢复。缓存仅在
-进程内存中，重载后清空。
+secret。v1 随后在 Linux.do 撤销对应 User API Key；v2 先停止 sidecar，再由管理员删除明确的
+`linuxdo-storage-state.json` 并从 Linux.do 安全设置撤销对应会话。保留候选/旧版本目录以便
+恢复；缓存仅在进程内存中，重载后清空。

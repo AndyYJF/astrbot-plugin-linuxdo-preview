@@ -31,6 +31,7 @@ class FetchedTopic:
     category: str
     content: str
     source: str
+    cooked: str = ""
 
 
 @dataclass(frozen=True, slots=True)

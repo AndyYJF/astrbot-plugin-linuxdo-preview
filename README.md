@@ -3,7 +3,7 @@
 面向 QQ 群聊和私聊消息的 AstrBot 插件。用户发送
 `linux.do/t/.../<topic_id>` 或 `linux.do/raw/<topic_id>` 链接后，插件只读取主题首帖。
 公开帖优先返回接近 LINUX DO 原生前端的长图；受限帖仅允许显式绑定的 QQ 发送者通过
-Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本转发返回。群聊授权默认关闭，
+隔离浏览器会话或 Discourse 只读 User API Key 获取，并以同样的长图合并转发返回（T2I 失败时回退纯文本）。群聊授权默认关闭，
 只有开发者同时开启群聊开关并在运行配置中填写发送者 allowlist 时才可触发。
 
 ## 当前能力
@@ -26,8 +26,11 @@ Discourse 只读 User API Key 获取，并以不经过第三方渲染的文本�
 - 获准的 QQ 消息每次最多处理一个链接，登录通道独立限制为 3 请求/分钟，认证缓存
   按“QQ + 会话/群”隔离且只保存在内存中。
 - 授权消息通过摘要固定的官方 Byparr 3.0.4 InvisiblePlaywright Firefox，在同一浏览器页面中
-  请求 Linux.do 固定单楼 JSON；不会导出 Cookie，也不会把受限正文交给 Jina/T2I。
-  aiocqhttp 返回“授权状态 + 标题/正文 + 可安全下载的独立图片”合并转发。
+  请求 Linux.do 固定单楼 JSON；不会导出 Cookie，也不会把受限正文交给 Jina Reader。
+  aiocqhttp 返回“授权状态 + 长图 + 可安全下载的独立图片”合并转发；长图由本 AstrBot
+  配置的 T2I 渲染，失败时在同一转发中回退为标题/正文纯文本。
+- 隔离会话模式只从独立 `0600` storage-state 文件恢复 Linux.do 会话，并使用固定浏览器 seed；
+  第三方登录域的 Cookie/localStorage 在落盘前会被丢弃。HTTP 侧车没有登录、Cookie 或浏览器控制接口。
 - 未绑定的发送者和未开启群聊授权时的群消息仍按公开通道处理；遇到受限帖只返回权限提示。
 
 用户链接里的 `/1`、`/11` 等浏览楼层后缀不会改变输出范围。插件只提取数字 topic ID，
@@ -54,18 +57,20 @@ QQ 消息中的 Linux.do 链接
   -> 固定 Docker 内网 Byparr sidecar（只接受数字 topic ID + bearer token）
   -> 同一 InvisiblePlaywright Firefox 页面完成 CF 后请求
      https://linux.do/posts/by_number/<数字ID>/1.json?include_raw=true
-     （只读 User API Key；禁止重定向；只接受楼主首帖）
+     （隔离 Linux.do 会话或只读 User API Key；禁止重定向；只接受楼主首帖）
   -> 插件本地清洗正文；图片只允许 Linux.do/LDStatic HTTPS
-  -> QQ 合并转发（授权状态 + 标题/首帖纯文本 + 已安全取得的独立图片）
+  -> QQ 合并转发（授权状态 + 长图 + 已安全取得的独立图片；
+     T2I 失败时回退为标题/首帖纯文本 + 同一批独立图片）
 ```
 
 - 不会把 QQ 身份、群消息全文、Cookie、账号或登录材料发送给 Reader/T2I。
 - Reader 和 T2I 都会接触公开帖的标题与首帖正文；T2I 还会收到处理后的公开帖子图片。若不能接受第三方处理，请勿启用本插件。
 - 缓存只在插件进程内存中，重载后清空；渲染文件由 AstrBot 临时文件机制管理。
 - 日志只记录 topic ID、错误类型和处理来源，不记录帖子正文。
-- 登录态、等级帖正文和任何认证材料都不会交给 Jina Reader 或第三方 T2I。
-- 不接受 Cookie、用户名或密码配置。User API Key 必须位于生产机绝对路径的独立 secret
-  文件中，不能写入 AstrBot 普通配置、Git、聊天或日志。
+- 登录态和任何认证材料都不会交给 Jina Reader 或 T2I；受限帖正文不经过 Jina Reader，但会经本 AstrBot 配置的 T2I 渲染长图。
+- 不接受用户粘贴 Cookie、用户名、密码或 MFA。隔离浏览器由用户自己输入登录材料，只把过滤后的
+  Linux.do storage state 保存到独立 `0600` 文件；该文件与 User API Key 同样不得进入
+  AstrBot 普通配置、Git、聊天或日志。
 
 ## 配置建议
 
@@ -107,8 +112,9 @@ QQ 消息中的 Linux.do 链接
 
 认证配置的 secret 格式、授权边界、Cloudflare 兼容性和启用前检查见
 [V7 受限帖绑定 QQ 预览](docs/v7-authenticated-private-preview.md)。当前生产网络的普通 HTTP
-请求会收到 Cloudflare challenge；Byparr 同浏览器固定首帖请求已经候选验证通过，但在只读
-User API Key、绑定 QQ 和等级帖端到端验收前，生产配置仍应保持 `authenticated_enabled: false`。
+请求会收到 Cloudflare challenge；Byparr 同浏览器固定首帖请求已经候选验证通过。Linux.do
+当前拒绝新的 `read` 设备授权，因此 0.8.0 增加了用户明确授权、默认关闭的隔离浏览器会话模式；
+在绑定 QQ 和等级帖端到端验收前，生产配置仍应保持 `authenticated_enabled: false`。
 不要向 Issue、聊天或普通配置粘贴 Cookie。
 
 ## 安装

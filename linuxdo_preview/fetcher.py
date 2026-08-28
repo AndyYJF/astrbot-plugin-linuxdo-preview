@@ -150,11 +150,14 @@ def parse_authenticated_topic_response(body: str, topic_id: int) -> FetchedTopic
     title = str(title_value).strip()[:180] or f"LINUX DO 帖子 #{topic_id}"
     category_value = payload.get("category_name") or first_post.get("category_name")
     category = str(category_value).strip()[:80] if category_value else ""
+    cooked_value = first_post.get("cooked")
+    cooked = cooked_value[:200_000] if isinstance(cooked_value, str) else ""
     return FetchedTopic(
         title=title,
         category=category,
         content=raw.strip(),
         source="discourse-user-api",
+        cooked=cooked,
     )
 
 
@@ -193,6 +196,11 @@ class LinuxDoFetcher:
 
         await self._acquire_authenticated_slot()
         used_sidecar = bool(credentials.sidecar_token)
+        if credentials.auth_mode == "browser_session" and not used_sidecar:
+            raise FetchError(
+                FetchErrorCode.AUTH_UNAVAILABLE,
+                "browser session mode requires sidecar authentication",
+            )
         if used_sidecar:
             status, headers, body = await self._request_sidecar(
                 ref,
@@ -203,11 +211,17 @@ class LinuxDoFetcher:
                     FetchErrorCode.CHALLENGE,
                     "Byparr browser clearance is unavailable",
                 )
-            if status == 401 and '"unauthorized"' in body:
-                raise FetchError(
-                    FetchErrorCode.AUTH_UNAVAILABLE,
-                    "sidecar authentication failed",
-                )
+            if status == 401:
+                if '"unauthorized"' in body:
+                    raise FetchError(
+                        FetchErrorCode.AUTH_UNAVAILABLE,
+                        "sidecar authentication failed",
+                    )
+                if '"session_expired"' in body:
+                    raise FetchError(
+                        FetchErrorCode.AUTH_INVALID,
+                        "browser session expired",
+                    )
         else:
             request_headers = {
                 **_AUTHENTICATED_HEADERS,
@@ -226,9 +240,14 @@ class LinuxDoFetcher:
                     "authenticated endpoint returned challenge",
                 )
         if status == 401:
+            invalid_detail = (
+                "browser session was rejected"
+                if credentials.auth_mode == "browser_session"
+                else "user API key was rejected"
+            )
             raise FetchError(
                 FetchErrorCode.AUTH_INVALID,
-                "user API key was rejected",
+                invalid_detail,
             )
         if status in {403, 404}:
             raise FetchError(

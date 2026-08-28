@@ -7,7 +7,7 @@ from collections import deque
 from time import monotonic
 from typing import Any
 
-from .browser import LinuxDoBrowser
+from .browser import BrowserSessionExpired, LinuxDoBrowser
 from .protocol import UpstreamPayloadError, filter_first_post
 from .security import bearer_is_valid, load_sidecar_secret, validate_topic_payload
 
@@ -47,6 +47,10 @@ class SidecarApp:
                 60,
             ),
             max_response_bytes=MAX_RESPONSE_BYTES,
+            session_state_file=os.environ.get(
+                "LINUXDO_SESSION_STATE_FILE",
+                "",
+            ),
         )
         self._requests: deque[float] = deque()
         self._rate_lock = asyncio.Lock()
@@ -79,6 +83,8 @@ class SidecarApp:
             self._requests.append(now)
         try:
             response = await self.browser.fetch_first_post(topic_id)
+        except BrowserSessionExpired:
+            return 401, {"error": "session_expired"}
         except Exception:
             return 503, {"error": "browser_unavailable"}
         lowered = response.body[:16_384].lower()

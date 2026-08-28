@@ -62,10 +62,10 @@
     "hint": "仅 allowlist 中的发送者可触发；正文会对所在群可见。开发测试后应关闭。"
   },
   "authenticated_secret_file": {
-    "description": "只读 User API Key secret 文件",
+    "description": "认证侧车 secret 文件",
     "type": "string",
     "default": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
-    "hint": "只填写绝对路径，secret 内容不得写入本配置、Git 或日志；生产文件权限应为 0600。"
+    "hint": "支持只读 User API v1 或隔离浏览器会话 v2；只填写绝对路径，内容不得写入本配置、Git 或日志，权限必须为 0600。"
   },
   "authenticated_timeout_seconds": {
     "description": "登录 API 请求超时秒数",

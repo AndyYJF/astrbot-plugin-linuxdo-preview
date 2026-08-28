@@ -30,7 +30,7 @@ from .linuxdo_preview.urls import extract_topic_refs
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
     "将 QQ 中的 LINUX DO 首帖渲染为长图，支持绑定 QQ 的只读登录通道",
-    "0.7.0",
+    "0.9.2",
 )
 class LinuxDoPreviewPlugin(Star):
     def __init__(
@@ -210,12 +210,6 @@ class LinuxDoPreviewPlugin(Star):
         event: AstrMessageEvent,
         preview,
     ) -> list[object]:
-        cache_key = f"{preview.cache_scope}:{preview.topic_id}"
-        embedded_images = self._embedded_images.get(cache_key)
-        if embedded_images is None:
-            embedded_images = await self.image_loader.load(preview.images)
-            self._embedded_images.put(cache_key, embedded_images)
-
         if event.get_platform_name() != "aiocqhttp":
             return [
                 Plain(
@@ -226,7 +220,26 @@ class LinuxDoPreviewPlugin(Star):
                 )
             ]
 
+        image_location, embedded_images = await self._render_preview_bundle(preview)
         uin = event.get_self_id() or "10000"
+        if image_location is not None:
+            nodes = [
+                Node(
+                    uin=uin,
+                    name="LINUX DO 授权预览状态",
+                    content=[
+                        Plain("该内容通过绑定的只读授权获取。")
+                    ],
+                ),
+                Node(
+                    uin=uin,
+                    name="LINUX DO 预览",
+                    content=[self._image_from_location(image_location)],
+                ),
+            ]
+            nodes.extend(self._build_post_image_nodes(uin, embedded_images))
+            return [Nodes(nodes)]
+
         text_chunks = build_forward_chunks(
             preview,
             chunk_chars=2_000,
@@ -239,8 +252,8 @@ class LinuxDoPreviewPlugin(Star):
                 name="LINUX DO 授权预览状态",
                 content=[
                     Plain(
-                        "该内容通过绑定的只读授权获取，"
-                        "未交给 Jina Reader 或第三方 T2I。"
+                        "长图渲染失败，已自动切换为纯文本预览。"
+                        "该内容通过绑定的只读授权获取。"
                     )
                 ],
             )

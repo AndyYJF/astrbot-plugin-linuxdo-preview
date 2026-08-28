@@ -13,6 +13,8 @@ _MAX_SECRET_BYTES = 16_384
 _CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._-]{8,128}")
 _USER_API_KEY_RE = re.compile(r"[A-Za-z0-9+/=_-]{20,512}")
 _SIDECAR_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
+AUTH_MODE_USER_API = "user_api"
+AUTH_MODE_BROWSER_SESSION = "browser_session"
 
 
 class SidecarConfigError(RuntimeError):
@@ -24,6 +26,8 @@ class SidecarSecret:
     user_api_key: str
     user_api_client_id: str
     sidecar_token: str
+    auth_mode: str = AUTH_MODE_USER_API
+    browser_seed: int | None = None
 
 
 def load_sidecar_secret(secret_file: str) -> SidecarSecret:
@@ -43,11 +47,34 @@ def load_sidecar_secret(secret_file: str) -> SidecarSecret:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise SidecarConfigError("secret file could not be loaded") from exc
-    if (
-        not isinstance(payload, dict)
-        or payload.get("version") != 1
-        or payload.get("site") != "https://linux.do"
-    ):
+    if not isinstance(payload, dict) or payload.get("site") != "https://linux.do":
+        raise SidecarConfigError("secret metadata is invalid")
+    version = payload.get("version")
+    if version == 2:
+        if payload.get("auth_mode") != AUTH_MODE_BROWSER_SESSION:
+            raise SidecarConfigError("secret authentication mode is invalid")
+        token = payload.get("sidecar_token")
+        browser_seed = payload.get("browser_seed")
+        if not isinstance(token, str) or not _SIDECAR_TOKEN_RE.fullmatch(token):
+            raise SidecarConfigError("sidecar token format is invalid")
+        if (
+            isinstance(browser_seed, bool)
+            or not isinstance(browser_seed, int)
+            or not 1 <= browser_seed <= 2_147_483_647
+        ):
+            raise SidecarConfigError("browser seed is invalid")
+        if "user_api_key" in payload or "user_api_client_id" in payload:
+            raise SidecarConfigError(
+                "browser session secret contains User API fields"
+            )
+        return SidecarSecret(
+            "",
+            "",
+            token,
+            AUTH_MODE_BROWSER_SESSION,
+            browser_seed,
+        )
+    if version != 1:
         raise SidecarConfigError("secret metadata is invalid")
     key = payload.get("user_api_key")
     client_id = payload.get("user_api_client_id")
@@ -58,7 +85,7 @@ def load_sidecar_secret(secret_file: str) -> SidecarSecret:
         raise SidecarConfigError("client ID format is invalid")
     if not isinstance(token, str) or not _SIDECAR_TOKEN_RE.fullmatch(token):
         raise SidecarConfigError("sidecar token format is invalid")
-    return SidecarSecret(key, client_id, token)
+    return SidecarSecret(key, client_id, token, AUTH_MODE_USER_API)
 
 
 def bearer_is_valid(header: str, expected_token: str) -> bool:

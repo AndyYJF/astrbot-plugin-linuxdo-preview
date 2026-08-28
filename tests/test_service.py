@@ -91,3 +91,34 @@ async def test_authenticated_preview_cache_is_subject_scoped_and_not_public():
     assert captured.value.code is FetchErrorCode.RESTRICTED
     assert fetcher.calls == 1
     await service.close()
+
+
+async def test_authenticated_preview_merges_cooked_only_images():
+    class CookedFetcher(FakeAuthenticatedFetcher):
+        async def fetch_authenticated_first_post(self, ref):
+            return FetchedTopic(
+                title="受限标题",
+                category="开发调优",
+                content="授权正文",
+                source="discourse-user-api",
+                cooked=(
+                    "<p>授权正文</p>"
+                    '<img src="https://cdn3.ldstatic.com/optimized/4X/a/b.jpeg" '
+                    'alt="图">'
+                ),
+            )
+
+    settings = Settings(cache_ttl_seconds=60, authenticated_cache_ttl_seconds=60)
+    service = PreviewService(settings, fetcher=CookedFetcher())
+    ref = TopicRef(321, "https://linux.do/t/topic/321")
+
+    preview = await service.get_preview(ref, auth_subject="qq-a")
+
+    assert preview.cache_scope == "auth:qq-a"
+    assert len(preview.images) == 1
+    assert preview.images[0].source_url == (
+        "https://cdn3.ldstatic.com/optimized/4X/a/b.jpeg"
+    )
+    assert preview.images[0].marker in preview.content
+    assert preview.total_image_count == 1
+    await service.close()

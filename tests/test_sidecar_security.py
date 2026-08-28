@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from sidecar.protocol import (
@@ -9,7 +11,9 @@ from sidecar.protocol import (
     validate_device_start_response,
 )
 from sidecar.security import (
+    AUTH_MODE_BROWSER_SESSION,
     bearer_is_valid,
+    load_sidecar_secret,
     validate_topic_payload,
 )
 
@@ -31,6 +35,29 @@ def test_sidecar_bearer_is_fail_closed():
     assert bearer_is_valid("Bearer wrong", token) is False
 
 
+def test_sidecar_loads_browser_session_secret_without_user_api_material(tmp_path):
+    secret = tmp_path / "sidecar-session.json"
+    secret.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "site": "https://linux.do",
+                "auth_mode": "browser_session",
+                "sidecar_token": "s" * 43,
+                "browser_seed": 246813579,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_sidecar_secret(str(secret))
+
+    assert loaded.auth_mode == AUTH_MODE_BROWSER_SESSION
+    assert loaded.user_api_key == ""
+    assert loaded.user_api_client_id == ""
+    assert loaded.browser_seed == 246813579
+
+
 def test_sidecar_filters_to_exact_first_post():
     result = filter_first_post(
         b'{"title":"Title","posts":['
@@ -45,6 +72,7 @@ def test_sidecar_filters_to_exact_first_post():
             "topic_title": "Title",
             "category_name": "",
             "raw": "owner",
+            "cooked": "",
         }
     ]
     with pytest.raises(UpstreamPayloadError):

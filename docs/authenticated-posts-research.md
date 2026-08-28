@@ -2,18 +2,20 @@
 
 调研日期：2026-08-23；实施更新：2026-08-24
 
-状态：0.7.0 本地候选已实现只读、绑定私聊的直连认证路径；生产仍保持关闭，等待
-User API Key/Cloudflare 实测。实施细节见 [V7 受限帖私聊预览](v7-authenticated-private-preview.md)。
+状态：0.8.0 候选增加用户明确授权的隔离浏览器会话；生产仍保持关闭，等待受限帖
+端到端验收。实施细节见 [V7 受限帖私聊预览](v7-authenticated-private-preview.md)。
 
 ## 结论
 
 技术上可行，但不能把“机器人账号看得到”直接等价为“QQ群所有成员都有权看到”。推荐路线是：
 
-1. 使用 Discourse 官方的 **User API Key** 授权流程，只申请 `read` scope；不收集 Linux.do 用户名和密码，不使用管理员 API Key。
+1. 优先使用 Discourse 官方的 **User API Key** 授权流程，只申请 `read` scope；当前 Linux.do
+   实测对新客户端返回 `invalid_access`，因此经用户明确授权后可使用隔离浏览器会话。
 2. 通过固定源站的 JSON API 读取首帖 `raw` 字段；API Key 只能继承关联用户已有权限，不能提升信任等级或绕过站点权限。
 3. Cloudflare 仍须独立处理。优先测试 API Key 请求能否直接通过；若仍被 challenge，则使用生产内网中的自托管浏览器 sidecar，仅维护 CF clearance，并使用 User API Key 作为论坛身份。
 4. 登录态、Cookie、User API Key 永远不得发送给 Jina Reader、FlareSolverr 公共实例或其他第三方抓取服务。
-5. 在定义 QQ 侧授权模型前，不应上线“群内被动自动转发受限帖”。一个高等级论坛账号向低权限 QQ 成员广播正文，会形成访问控制泄漏。
+5. 在定义 QQ 侧授权模型前，不应上线“群内被动自动转发受限帖”。当前群聊只用于显式绑定
+   sender 的私有测试群验收；一个高等级论坛账号向低权限 QQ 成员广播正文会形成访问控制泄漏。
 
 ## 推荐认证方案
 
@@ -95,8 +97,9 @@ sidecar 必须限制出站主机为 `linux.do`，限制入站为 AstrBot 容器�
 4. 从生产固定出口验证带 User API Key 的 JSON API 是否仍被 Cloudflare challenge。
 5. 定义 secret 轮换、撤销、MFA/clearance 过期和应急停用流程。
 
-0.7.0 已加入默认关闭的 secret 文件路径、QQ 私聊 allowlist 与只读认证实现，但不会加入
-Cookie 或密码配置项。上述阻断项未完成前，生产必须继续保持认证开关关闭。
+0.8.0 保留默认关闭的 secret 文件路径、QQ sender allowlist 与只读认证实现，并增加独立
+storage-state 文件。它不加入 Cookie 文本、用户名或密码配置项，也不暴露 Cookie 导出接口。
+上述端到端验收未完成前，生产必须继续保持认证开关关闭。
 
 ## 一手资料
 

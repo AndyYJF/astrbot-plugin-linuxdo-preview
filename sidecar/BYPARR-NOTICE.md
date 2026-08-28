@@ -20,4 +20,7 @@ also carries its source tree and upstream `LICENSE` under `/app`.
 
 Source corresponding to the pinned upstream version is available from the
 [v3.0.4 tag](https://github.com/ThePhaseless/Byparr/tree/v3.0.4). Modified
-adapter source is the `sidecar/` directory in this repository.
+adapter source is the `sidecar/` directory in this repository. The adapter
+reproduces the pinned upstream browser-launch options so it can pass a
+Playwright `storage_state` object into a fresh context; it does not expose raw
+cookies, arbitrary URLs, or a general browser-control endpoint.

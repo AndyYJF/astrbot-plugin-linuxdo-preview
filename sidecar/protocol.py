@@ -129,6 +129,7 @@ def filter_first_post(body: bytes, topic_id: int) -> dict[str, Any]:
         )
     if first is None or not isinstance(first.get("raw"), str):
         raise UpstreamPayloadError("upstream response omitted first post raw")
+    cooked = first.get("cooked")
     title = payload.get("title") or first.get("topic_title") or ""
     category = payload.get("category_name") or first.get("category_name") or ""
     return {
@@ -141,6 +142,7 @@ def filter_first_post(body: bytes, topic_id: int) -> dict[str, Any]:
                 "topic_title": str(title)[:180],
                 "category_name": str(category)[:80],
                 "raw": first["raw"],
+                "cooked": str(cooked)[:200_000] if isinstance(cooked, str) else "",
             }
         ],
     }

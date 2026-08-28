@@ -257,3 +257,47 @@ async def test_authenticated_fetch_uses_fixed_sidecar_before_direct_http(monkeyp
     assert fetched.title == "侧车标题"
     assert fetched.content == "侧车正文"
     await fetcher.close()
+
+
+async def test_browser_session_mode_requires_sidecar_and_maps_expiry(monkeypatch):
+    settings = Settings(
+        authenticated_enabled=True,
+        authenticated_secret_file="/unused/test-secret.json",
+    )
+    fetcher = LinuxDoFetcher(settings)
+    monkeypatch.setattr(
+        "linuxdo_preview.fetcher.load_user_api_credentials",
+        lambda _path: UserApiCredentials(
+            "",
+            "",
+            "s" * 43,
+            "browser_session",
+            123456789,
+        ),
+    )
+
+    async def fake_sidecar(_ref, _token):
+        return 401, {"content-type": "application/json"}, '{"error":"session_expired"}'
+
+    monkeypatch.setattr(fetcher, "_request_sidecar", fake_sidecar)
+    with pytest.raises(FetchError) as captured:
+        await fetcher.fetch_authenticated_first_post(
+            TopicRef(123, "https://linux.do/t/topic/123")
+        )
+
+    assert captured.value.code is FetchErrorCode.AUTH_INVALID
+    await fetcher.close()
+
+
+def test_parses_authenticated_cooked_with_bound():
+    fetched = parse_authenticated_topic_response(
+        '{"post_number":1,"topic_id":123,"raw":"单楼正文","cooked":"<p>正文</p>"}',
+        123,
+    )
+    assert fetched.cooked == "<p>正文</p>"
+
+    non_string = parse_authenticated_topic_response(
+        '{"post_number":1,"topic_id":123,"raw":"单楼正文","cooked":123}',
+        123,
+    )
+    assert non_string.cooked == ""

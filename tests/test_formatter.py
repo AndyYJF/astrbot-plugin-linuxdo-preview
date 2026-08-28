@@ -4,6 +4,7 @@ from linuxdo_preview.formatter import (
     build_preview_text,
     clean_discourse_content,
     clean_discourse_markdown,
+    merge_cooked_images,
     split_text,
 )
 from linuxdo_preview.models import TopicPreview
@@ -157,3 +158,90 @@ def test_plain_and_forward_fallbacks_always_keep_original_link():
     assert plain.endswith("https://linux.do/t/topic/123")
     assert len(forward) == 3
     assert forward[-1].endswith("https://linux.do/t/topic/123")
+
+
+def test_merge_cooked_images_appends_absolute_https_images_in_order():
+    cleaned = clean_discourse_content("只有文字", max_chars=5000, max_images=6)
+    cooked = (
+        '<p>只有文字</p><p><img src="https://cdn3.ldstatic.com/optimized/4X/a/b.jpeg" '
+        'alt="示意图|690x388"></p>'
+        '<img src="https://linux.do/images/emoji/smile.png" alt=":smile:">'
+        '<img src="/uploads/short-url/abc.jpeg">'
+    )
+
+    merged = merge_cooked_images(cleaned, cooked, max_images=6)
+
+    assert len(merged.images) == 1
+    assert merged.images[0].source_url == (
+        "https://cdn3.ldstatic.com/optimized/4X/a/b.jpeg"
+    )
+    assert merged.images[0].alt == "示意图"
+    assert merged.text.endswith(merged.images[0].marker)
+    assert merged.total_image_count == 1
+
+
+def test_merge_cooked_images_dedupes_and_reports_overflow():
+    cleaned = clean_discourse_content(
+        "![已存在](https://linux.do/uploads/original/a.png)",
+        max_chars=5000,
+        max_images=1,
+    )
+    cooked = (
+        '<img src="https://linux.do/uploads/original/a.png">'
+        '<img src="https://cdn3.ldstatic.com/optimized/4X/b/c.jpeg">'
+    )
+
+    merged = merge_cooked_images(cleaned, cooked, max_images=1)
+
+    assert len(merged.images) == 1
+    assert merged.total_image_count == 2
+    assert "[另有 1 张图片暂未展示]" in merged.text
+
+
+def test_merge_cooked_images_ignores_empty_cooked():
+    cleaned = clean_discourse_content("只有文字", max_chars=5000, max_images=6)
+
+    merged = merge_cooked_images(cleaned, "  ", max_images=6)
+
+    assert merged == cleaned
+
+
+def test_merge_cooked_images_skips_onebox_and_decorative_images():
+    cleaned = clean_discourse_content("只有文字", max_chars=5000, max_images=6)
+    cooked = (
+        '<aside class="onebox allowlistedresource">'
+        '<header class="source"><img src="https://cdn3.ldstatic.com/favicon.png" '
+        'class="site-icon"></header>'
+        '<article class="onebox-body">'
+        '<img src="https://cdn3.ldstatic.com/optimized/4X/t/umb.jpeg" '
+        'class="thumbnail">'
+        "</article></aside>"
+        '<p><img src="https://cdn3.ldstatic.com/optimized/4X/r/eal.jpeg"></p>'
+    )
+
+    merged = merge_cooked_images(cleaned, cooked, max_images=6)
+
+    assert len(merged.images) == 1
+    assert merged.images[0].source_url.endswith("/r/eal.jpeg")
+    assert merged.total_image_count == 1
+
+
+def test_merge_cooked_images_replaces_upload_placeholders_in_order():
+    cleaned = clean_discourse_content(
+        "前文\n\n![截图](upload://aaa.jpeg)\n\n后文",
+        max_chars=5000,
+        max_images=6,
+    )
+    assert "[图片暂未展示：截图]" in cleaned.text
+    cooked = '<p>前文</p><img src="https://cdn3.ldstatic.com/optimized/4X/a/aa.jpeg"><p>后文</p>'
+
+    merged = merge_cooked_images(cleaned, cooked, max_images=6)
+
+    assert "[图片暂未展示" not in merged.text
+    assert len(merged.images) == 1
+    marker = merged.images[0].marker
+    assert "前文" in merged.text
+    assert "后文" in merged.text
+    assert merged.text.index("前文") < merged.text.index(marker) < merged.text.index(
+        "后文"
+    )

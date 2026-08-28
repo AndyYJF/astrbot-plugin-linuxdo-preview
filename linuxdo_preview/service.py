@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .cache import TTLCache
 from .fetcher import LinuxDoFetcher
-from .formatter import clean_discourse_content
+from .formatter import clean_discourse_content, merge_cooked_images
 from .models import FetchedTopic, TopicPreview, TopicRef
 from .settings import Settings
 
@@ -84,6 +84,12 @@ class PreviewService:
             max_chars=self.settings.max_content_chars,
             max_images=self.settings.max_images_per_topic,
         )
+        if fetched.cooked:
+            cleaned = merge_cooked_images(
+                cleaned,
+                fetched.cooked,
+                self.settings.max_images_per_topic,
+            )
         preview = TopicPreview(
             topic_id=ref.topic_id,
             title=fetched.title,

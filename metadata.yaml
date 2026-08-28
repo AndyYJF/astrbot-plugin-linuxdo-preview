@@ -1,9 +1,9 @@
 name: astrbot_plugin_linuxdo_preview
 display_name: LINUX DO 帖子预览
-desc: 自动识别 QQ 中的 LINUX DO 帖子链接，公开帖通过 Reader 获取；受限帖仅允许运行配置绑定的 QQ 使用只读 User API Key，并生成安全首帖预览。
-short_desc: QQ LINUX DO 首帖预览，支持绑定 QQ 的只读登录通道。
+desc: 自动识别 QQ 中的 LINUX DO 帖子链接，公开帖通过 Reader 获取；受限帖仅允许运行配置绑定的 QQ 通过隔离浏览器会话或只读 User API Key 生成安全首帖预览。
+short_desc: QQ LINUX DO 首帖预览，支持绑定 QQ 的隔离登录通道。
 author: AndyYan
-version: 0.7.0
+version: 0.9.2
 astrbot_version: ">=4.26,<5"
 support_platforms:
   - aiocqhttp
