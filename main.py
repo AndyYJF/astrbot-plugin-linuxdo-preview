@@ -30,7 +30,7 @@ from .linuxdo_preview.urls import extract_topic_refs
     "astrbot_plugin_linuxdo_preview",
     "AndyYan",
     "将 QQ 中的 LINUX DO 首帖渲染为长图，支持绑定 QQ 的只读登录通道",
-    "0.9.5",
+    "0.9.6",
 )
 class LinuxDoPreviewPlugin(Star):
     def __init__(

@@ -74,7 +74,7 @@ QQ 消息中的 Linux.do 链接
 
 ## 配置建议
 
-生产环境使用以下配置：
+生产环境使用以下配置（0.9.6 起仅保留这些可调项，其余限额与超时已硬编码）：
 
 ```json
 {
@@ -82,40 +82,23 @@ QQ 消息中的 Linux.do 链接
   "group_allowlist": [],
   "proxy_url": "http://172.19.0.1:7890",
   "max_links_per_message": 2,
-  "cache_ttl_seconds": 1800,
-  "dedup_ttl_seconds": 300,
-  "reader_timeout_seconds": 45,
-  "reader_requests_per_minute": 12,
   "authenticated_enabled": false,
   "authenticated_sender_allowlist": [],
   "authenticated_allow_group_messages": false,
   "authenticated_secret_file": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
-  "authenticated_timeout_seconds": 45,
-  "authenticated_requests_per_minute": 3,
-  "authenticated_cache_ttl_seconds": 120,
-  "max_content_chars": 12000,
-  "image_quality": 88,
-  "max_images_per_topic": 6,
-  "max_image_bytes": 2000000,
-  "max_total_image_bytes": 6000000,
-  "max_forward_image_bytes": 6000000,
-  "max_total_forward_image_bytes": 12000000,
-  "image_timeout_seconds": 15,
-  "render_timeout_seconds": 90,
   "reply_on_error": true
 }
 ```
 
-`proxy_url` 用于 Reader 和帖子图片请求。`max_images_per_topic` 可设为 `0` 完全关闭图片下载，
-有效范围为 0–12。长图由 AstrBot 的 T2I 配置生成；生产部署前必须验证 AstrBot 容器可以访问
-该渲染端点。`render_timeout_seconds` 会在 T2I 不响应时终止本次渲染，并自动使用上述纯文本合并转发回退。
+`proxy_url` 用于 Reader 和帖子图片请求。长图由 AstrBot 的 T2I 配置生成；生产部署前必须验证
+AstrBot 容器可以访问该渲染端点，T2I 超时会自动切换为上述纯文本合并转发回退。缓存 TTL、
+去重窗口、Reader/认证限速、图片体积与渲染限额均已内置固定值，不再暴露为配置项。
 
 认证配置的 secret 格式、授权边界、Cloudflare 兼容性和启用前检查见
 [V7 受限帖绑定 QQ 预览](docs/v7-authenticated-private-preview.md)。当前生产网络的普通 HTTP
-请求会收到 Cloudflare challenge；Byparr 同浏览器固定首帖请求已经候选验证通过。Linux.do
-当前拒绝新的 `read` 设备授权，因此 0.8.0 增加了用户明确授权、默认关闭的隔离浏览器会话模式；
-在绑定 QQ 和等级帖端到端验收前，生产配置仍应保持 `authenticated_enabled: false`。
-不要向 Issue、聊天或普通配置粘贴 Cookie。
+请求会收到 Cloudflare challenge；Byparr 同浏览器固定首帖请求已经生产验证通过。Linux.do
+当前拒绝新的 `read` 设备授权，因此登录通道使用用户明确授权、默认关闭的隔离浏览器会话模式；
+启用前必须显式填写绑定 QQ 的 sender allowlist。不要向 Issue、聊天或普通配置粘贴 Cookie。
 
 ## 安装
 

@@ -1,7 +1,7 @@
 from linuxdo_preview.settings import Settings
 
 
-def test_image_limits_are_clamped_from_plugin_config():
+def test_fixed_limits_ignore_plugin_config():
     settings = Settings.from_mapping(
         {
             "max_images_per_topic": 99,
@@ -11,22 +11,34 @@ def test_image_limits_are_clamped_from_plugin_config():
             "max_total_forward_image_bytes": 99_000_000,
             "image_timeout_seconds": 1,
             "render_timeout_seconds": 999,
+            "cache_ttl_seconds": 1,
+            "dedup_ttl_seconds": 1,
+            "reader_timeout_seconds": 1,
+            "reader_requests_per_minute": 99,
+            "max_content_chars": 1,
+            "image_quality": 1,
         }
     )
 
-    assert settings.max_images_per_topic == 12
-    assert settings.max_image_bytes == 128_000
-    assert settings.max_total_image_bytes == 16_000_000
-    assert settings.max_forward_image_bytes == 512_000
-    assert settings.max_total_forward_image_bytes == 32_000_000
-    assert settings.image_timeout_seconds == 5
-    assert settings.render_timeout_seconds == 180
+    assert settings.max_images_per_topic == 6
+    assert settings.max_image_bytes == 2_000_000
+    assert settings.max_total_image_bytes == 6_000_000
+    assert settings.max_forward_image_bytes == 6_000_000
+    assert settings.max_total_forward_image_bytes == 12_000_000
+    assert settings.image_timeout_seconds == 15
+    assert settings.render_timeout_seconds == 90
+    assert settings.cache_ttl_seconds == 1800
+    assert settings.dedup_ttl_seconds == 300
+    assert settings.reader_timeout_seconds == 45
+    assert settings.reader_requests_per_minute == 12
+    assert settings.max_content_chars == 12_000
+    assert settings.image_quality == 88
 
 
-def test_images_can_be_disabled_without_disabling_text_preview():
+def test_fixed_image_count_cannot_disable_text_preview():
     settings = Settings.from_mapping({"max_images_per_topic": 0})
 
-    assert settings.max_images_per_topic == 0
+    assert settings.max_images_per_topic == 6
     assert settings.enabled is True
 
 
@@ -50,9 +62,9 @@ def test_authenticated_channel_is_fail_closed_and_clamped():
         {"10001", "10002"}
     )
     assert configured.authenticated_secret_file == "/secure/linuxdo.json"
-    assert configured.authenticated_timeout_seconds == 60
-    assert configured.authenticated_requests_per_minute == 6
-    assert configured.authenticated_cache_ttl_seconds == 30
+    assert configured.authenticated_timeout_seconds == 45
+    assert configured.authenticated_requests_per_minute == 3
+    assert configured.authenticated_cache_ttl_seconds == 120
 
     legacy = Settings.from_mapping(
         {"authenticated_private_sender_allowlist": ["10003"]}

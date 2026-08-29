@@ -21,28 +21,6 @@
     "type": "int",
     "default": 2
   },
-  "cache_ttl_seconds": {
-    "description": "成功预览缓存秒数",
-    "type": "int",
-    "default": 1800
-  },
-  "dedup_ttl_seconds": {
-    "description": "同会话同帖去重秒数",
-    "type": "int",
-    "default": 300
-  },
-  "reader_timeout_seconds": {
-    "description": "Reader 主题 HTML 请求超时秒数",
-    "type": "int",
-    "default": 45,
-    "hint": "Reader 只提取公开主题的 #post_1 .cooked 节点，不会接收 Cookie 或登录材料。"
-  },
-  "reader_requests_per_minute": {
-    "description": "reader 每分钟最大请求数",
-    "type": "int",
-    "default": 12,
-    "hint": "公开通道实测窗口为 20 RPM；默认留出余量，超限时快速失败。"
-  },
   "authenticated_enabled": {
     "description": "启用绑定 QQ 的只读登录通道",
     "type": "bool",
@@ -66,77 +44,6 @@
     "type": "string",
     "default": "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json",
     "hint": "支持只读 User API v1 或隔离浏览器会话 v2；只填写绝对路径，内容不得写入本配置、Git 或日志，权限必须为 0600。"
-  },
-  "authenticated_timeout_seconds": {
-    "description": "登录 API 请求超时秒数",
-    "type": "int",
-    "default": 45,
-    "hint": "范围 5-60；Byparr 在同一 Firefox 页面中请求固定首帖 JSON，且禁止跟随重定向。"
-  },
-  "authenticated_requests_per_minute": {
-    "description": "登录通道每分钟最大请求数",
-    "type": "int",
-    "default": 3,
-    "hint": "范围 1-6；授权 QQ 消息每次最多处理一个链接。"
-  },
-  "authenticated_cache_ttl_seconds": {
-    "description": "登录正文内存缓存秒数",
-    "type": "int",
-    "default": 120,
-    "hint": "范围 30-600；缓存键包含授权 QQ 主体，不与公开或其他主体共享。"
-  },
-  "max_content_chars": {
-    "description": "单张长图最多保留的正文字符数",
-    "type": "int",
-    "default": 12000
-  },
-  "image_quality": {
-    "description": "长图 JPEG 质量",
-    "type": "int",
-    "default": 88,
-    "hint": "范围 60-95；质量越高，QQ 上传文件越大。"
-  },
-  "max_images_per_topic": {
-    "description": "单个帖子最多加载的图片数",
-    "type": "int",
-    "default": 6,
-    "hint": "范围 0-12；设为 0 时不下载帖子图片，只显示数量提示。"
-  },
-  "max_image_bytes": {
-    "description": "单张图片最大字节数",
-    "type": "int",
-    "default": 2000000,
-    "hint": "同时限制下载体积和处理后的 JPEG 体积，范围 128000-8000000。"
-  },
-  "max_total_image_bytes": {
-    "description": "单帖图片处理后最大总字节数",
-    "type": "int",
-    "default": 6000000,
-    "hint": "范围 256000-16000000；达到上限后的图片保留占位。"
-  },
-  "max_forward_image_bytes": {
-    "description": "QQ 独立图片单张最大字节数",
-    "type": "int",
-    "default": 6000000,
-    "hint": "范围 512000-16000000；仅影响合并转发中的独立高清图，不增加 T2I 长图载荷。"
-  },
-  "max_total_forward_image_bytes": {
-    "description": "QQ 独立图片单帖最大总字节数",
-    "type": "int",
-    "default": 12000000,
-    "hint": "范围 1000000-32000000；超出预算的图片仍可出现在正文长图中，但不再追加独立节点。"
-  },
-  "image_timeout_seconds": {
-    "description": "单张图片下载超时秒数",
-    "type": "int",
-    "default": 15,
-    "hint": "范围 5-45；图片失败不会影响正文长图。"
-  },
-  "render_timeout_seconds": {
-    "description": "整张长图渲染超时秒数",
-    "type": "int",
-    "default": 90,
-    "hint": "范围 30-180；避免外部 T2I 不响应时长期占用消息处理。"
   },
   "reply_on_error": {
     "description": "抓取失败时在当前会话提示",

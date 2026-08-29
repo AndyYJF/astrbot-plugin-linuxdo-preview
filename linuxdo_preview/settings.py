@@ -117,16 +117,6 @@ class Settings:
             max_links_per_message=_clamp_int(
                 data.get("max_links_per_message"), 2, 1, 5
             ),
-            cache_ttl_seconds=_clamp_int(
-                data.get("cache_ttl_seconds"), 1800, 30, 86_400
-            ),
-            dedup_ttl_seconds=_clamp_int(data.get("dedup_ttl_seconds"), 300, 0, 3600),
-            reader_timeout_seconds=_clamp_int(
-                data.get("reader_timeout_seconds"), 45, 5, 90
-            ),
-            reader_requests_per_minute=_clamp_int(
-                data.get("reader_requests_per_minute"), 12, 1, 18
-            ),
             authenticated_enabled=_as_bool(
                 data.get("authenticated_enabled"), False
             ),
@@ -137,49 +127,6 @@ class Settings:
             authenticated_secret_file=(
                 raw_secret_file
                 or "/AstrBot/data/secrets/astrbot_plugin_linuxdo_preview.json"
-            ),
-            authenticated_timeout_seconds=_clamp_int(
-                data.get("authenticated_timeout_seconds"), 45, 5, 60
-            ),
-            authenticated_requests_per_minute=_clamp_int(
-                data.get("authenticated_requests_per_minute"), 3, 1, 6
-            ),
-            authenticated_cache_ttl_seconds=_clamp_int(
-                data.get("authenticated_cache_ttl_seconds"), 120, 30, 600
-            ),
-            max_content_chars=_clamp_int(
-                data.get("max_content_chars"), 12_000, 500, 30_000
-            ),
-            image_quality=_clamp_int(data.get("image_quality"), 88, 60, 95),
-            max_images_per_topic=_clamp_int(
-                data.get("max_images_per_topic"), 6, 0, 12
-            ),
-            max_image_bytes=_clamp_int(
-                data.get("max_image_bytes"), 2_000_000, 128_000, 8_000_000
-            ),
-            max_total_image_bytes=_clamp_int(
-                data.get("max_total_image_bytes"),
-                6_000_000,
-                256_000,
-                16_000_000,
-            ),
-            max_forward_image_bytes=_clamp_int(
-                data.get("max_forward_image_bytes"),
-                6_000_000,
-                512_000,
-                16_000_000,
-            ),
-            max_total_forward_image_bytes=_clamp_int(
-                data.get("max_total_forward_image_bytes"),
-                12_000_000,
-                1_000_000,
-                32_000_000,
-            ),
-            image_timeout_seconds=_clamp_int(
-                data.get("image_timeout_seconds"), 15, 5, 45
-            ),
-            render_timeout_seconds=_clamp_int(
-                data.get("render_timeout_seconds"), 90, 30, 180
             ),
             reply_on_error=_as_bool(data.get("reply_on_error"), True),
         )
