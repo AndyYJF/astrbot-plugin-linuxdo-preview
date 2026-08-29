@@ -117,3 +117,72 @@ def test_renderer_keeps_placeholder_when_image_load_fails():
 
     assert "图片加载失败或超过限制：失败示例" in rendered
     assert "<img" not in rendered
+
+
+def test_renderer_renders_markdown_table_as_html_table():
+    from linuxdo_preview.renderer import content_to_safe_html
+
+    content = (
+        "|条件|信任等级1|信任等级2|\n"
+        "|---|---|---|\n"
+        "|进入至少5个话题|✔||\n"
+        "|阅读至少30篇帖子|✔||"
+    )
+
+    html_out = content_to_safe_html(content)
+
+    assert "<table>" in html_out
+    assert "<th>条件</th>" in html_out
+    assert "<td>阅读至少30篇帖子</td>" in html_out
+    assert "|---|" not in html_out
+    assert html_out.count("<tr>") == 3
+
+
+def test_renderer_styles_inline_code_and_strikethrough():
+    from linuxdo_preview.renderer import content_to_safe_html
+
+    html_out = content_to_safe_html(
+        "运行 `pip install astrbot` 即可，~~旧版~~别用。"
+    )
+
+    assert '<code class="ic">pip install astrbot</code>' in html_out
+    assert "<del>旧版</del>" in html_out
+
+
+def test_renderer_keeps_non_table_pipe_text_as_paragraph():
+    from linuxdo_preview.renderer import content_to_safe_html
+
+    html_out = content_to_safe_html("a | b 只是普通一行")
+
+    assert "<table>" not in html_out
+    assert "a | b 只是普通一行" in html_out
+
+
+def test_renderer_styles_bold_and_horizontal_rule():
+    from linuxdo_preview.renderer import content_to_safe_html
+
+    html_out = content_to_safe_html("第一部分\n\n---\n\n这是 **重点** 内容")
+
+    assert '<hr class="sep">' in html_out
+    assert "<strong>重点</strong>" in html_out
+    assert "---" not in html_out.replace('<hr class="sep">', "")
+    assert "**" not in html_out
+
+
+def test_plain_text_strips_bold_markers():
+    from linuxdo_preview.formatter import build_preview_text
+    from linuxdo_preview.models import TopicPreview
+
+    preview = TopicPreview(
+        topic_id=1,
+        title="标题",
+        category="分类",
+        content="这是 **重点** 内容",
+        canonical_url="https://linux.do/t/topic/1",
+        fetch_source="fake",
+    )
+
+    plain = build_preview_text(preview)
+
+    assert "重点" in plain
+    assert "**" not in plain

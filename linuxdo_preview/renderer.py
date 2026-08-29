@@ -35,6 +35,48 @@ _IMAGE_TOKEN_RE = re.compile(
     r"\[帖子图片#(?P<position>\d+)(?:：(?P<alt>[^\]]+))?\]"
 )
 _STANDALONE_TITLE_RE = re.compile(r"^【(?P<title>[^】]{1,120})】$")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+_INLINE_CODE_RE = re.compile(r"`([^`\n]{1,300})`")
+_STRIKETHROUGH_RE = re.compile(r"~~([^~\n]{1,300})~~")
+_BOLD_MD_RE = re.compile(r"\*\*([^*\n]{1,300})\*\*|__([^_\n]{1,300})__")
+_HR_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,}|—{2,})\s*$")
+
+
+def _is_table_separator(line: str) -> bool:
+    cells = line.strip().strip("|").split("|")
+    return bool(cells) and all(
+        re.fullmatch(r":?-{2,}:?", cell.strip()) for cell in cells
+    )
+
+
+def _split_table_row(line: str) -> list[str]:
+    return [
+        cell.strip().replace(r"\|", "|")
+        for cell in line.strip().strip("|").split("|")
+    ]
+
+
+def _render_table_block(
+    lines: list[str],
+    images: dict[int, EmbeddedTopicImage],
+) -> str:
+    rows = [_split_table_row(line) for line in lines if not _is_table_separator(line)]
+    if not rows:
+        return ""
+    head, *body = rows
+    header = "".join(
+        f"<th>{_decorate_inline(cell, images)}</th>" for cell in head
+    )
+    body_rows = "".join(
+        "<tr>"
+        + "".join(f"<td>{_decorate_inline(cell, images)}</td>" for cell in row)
+        + "</tr>"
+        for row in body
+    )
+    return (
+        f"<table><thead><tr>{header}</tr></thead>"
+        f"<tbody>{body_rows}</tbody></table>"
+    )
 
 
 LINUXDO_IMAGE_TEMPLATE = """<!doctype html>
@@ -155,6 +197,33 @@ LINUXDO_IMAGE_TEMPLATE = """<!doctype html>
       white-space: pre-wrap;
       font: 14px/1.6 "SFMono-Regular", Consolas, monospace;
     }
+    .post-body table {
+      margin: 12px 0 18px;
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 14.5px;
+      line-height: 1.5;
+    }
+    .post-body th, .post-body td {
+      border: 1px solid #dfe3e6;
+      padding: 7px 10px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    .post-body th { background: #f3f6f8; font-weight: 700; }
+    .post-body tr:nth-child(even) td { background: #fafbfc; }
+    .post-body code.ic {
+      background: #f2f3f4;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font: 0.92em "SFMono-Regular", Consolas, monospace;
+    }
+    .post-body del { color: #8b8e91; }
+    .post-body hr.sep {
+      border: none;
+      border-top: 1px solid #e3e5e7;
+      margin: 6px 0;
+    }
     .detail-row, .image-placeholder {
       display: block;
       margin: 8px 0;
@@ -267,6 +336,18 @@ def _decorate_inline(
     escaped = _IMAGE_TOKEN_RE.sub(
         lambda match: _render_topic_image(match, image_map), escaped
     )
+    escaped = _INLINE_CODE_RE.sub(
+        lambda match: f'<code class="ic">{match.group(1)}</code>',
+        escaped,
+    )
+    escaped = _BOLD_MD_RE.sub(
+        lambda match: f"<strong>{match.group(1) or match.group(2)}</strong>",
+        escaped,
+    )
+    escaped = _STRIKETHROUGH_RE.sub(
+        lambda match: f"<del>{match.group(1)}</del>",
+        escaped,
+    )
     return _URL_RE.sub(
         lambda match: f'<span class="link">{match.group(0)}</span>',
         escaped,
@@ -283,6 +364,14 @@ def content_to_safe_html(
     for block in blocks:
         lines = [line.strip() for line in block.splitlines() if line.strip()]
         if not lines:
+            continue
+
+        if len(lines) == 1 and _HR_RE.match(lines[0]):
+            rendered.append('<hr class="sep">')
+            continue
+
+        if len(lines) >= 2 and all(_TABLE_ROW_RE.match(line) for line in lines):
+            rendered.append(_render_table_block(lines, image_map))
             continue
 
         if all(line.startswith("• ") for line in lines):
@@ -330,7 +419,12 @@ def content_to_safe_html(
                 continue
 
         paragraph = "<br>".join(
-            _decorate_inline(line, image_map) for line in lines
+            (
+                '<hr class="sep">'
+                if _HR_RE.match(line)
+                else _decorate_inline(line, image_map)
+            )
+            for line in lines
         )
         rendered.append(f"<p>{paragraph}</p>")
 

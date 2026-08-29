@@ -41,7 +41,19 @@ _COOKED_DECORATIVE_CLASS_RE = re.compile(
     r"\b(?:site-icon|thumbnail|avatar|emoji)\b",
     re.I,
 )
+_COOKED_LIGHTBOX_RE = re.compile(
+    r"<a\b[^>]{0,300}\bclass=\"[^\"]*\blightbox\b[^\"]*\"[^>]{0,300}?"
+    r"\bhref=\"(?P<original>https?://[^\"\s]{1,2000})\"[^>]{0,300}>\s*"
+    r"<img\b(?P<imgattrs>[^>]{0,1000})>",
+    re.I,
+)
 _UPLOAD_PLACEHOLDER_RE = re.compile(r"\[图片暂未展示(?:：[^\]]*)?\]")
+_BOLD_MD_RE = re.compile(r"(?<!\w)(?:\*\*|__)(.+?)(?:\*\*|__)(?!\w)")
+
+
+def strip_bold_markers(text: str) -> str:
+    """Remove bold emphasis markers for plain-text outputs."""
+    return _BOLD_MD_RE.sub(r"\1", text)
 _DETAILS_OPEN_RE = re.compile(r"\[details(?:=\"?(?P<title>[^\]\"]+)\"?)?\]", re.I)
 _QUOTE_OPEN_RE = re.compile(r"\[quote(?:=\"?(?P<who>[^\]\"]+)\"?)?\]", re.I)
 
@@ -148,7 +160,8 @@ def clean_discourse_content(
     text = re.sub(r"^\s*>\s?", "│ ", text, flags=re.M)
     text = re.sub(r"^\s*[-*+]\s+", "• ", text, flags=re.M)
     text = re.sub(r"```[^\n]*\n?", "\n【代码】\n", text)
-    text = re.sub(r"(?<!\w)(?:\*\*|__)(.+?)(?:\*\*|__)(?!\w)", r"\1", text)
+    # Bold markers stay in the text: the HTML renderer styles them and the
+    # plain-text builders strip them, so both output kinds stay readable.
     text = re.sub(r"(?<!\w)[*_](.+?)[*_](?!\w)", r"\1", text)
     text = text.replace("[CQ:", "［CQ:")
     text = re.sub(r"[ \t]+\n", "\n", text)
@@ -200,12 +213,35 @@ def merge_cooked_images(
     images = list(cleaned.images)
     found = 0
     appended = 0
+    candidates: list[tuple[int, str, str | None, dict[str, str]]] = []
+    lightbox_spans: list[tuple[int, int]] = []
+    for anchor in _COOKED_LIGHTBOX_RE.finditer(body):
+        attributes = {
+            attr.group("attr").lower(): attr.group("value")
+            for attr in _COOKED_IMAGE_ATTR_RE.finditer(anchor.group("imgattrs"))
+        }
+        candidates.append(
+            (
+                anchor.start(),
+                anchor.group("original"),
+                attributes.get("src") or None,
+                attributes,
+            )
+        )
+        lightbox_spans.append(anchor.span())
     for tag_match in _COOKED_IMAGE_TAG_RE.finditer(body):
+        if any(start <= tag_match.start() < end for start, end in lightbox_spans):
+            continue
         attributes = {
             attr.group("attr").lower(): attr.group("value")
             for attr in _COOKED_IMAGE_ATTR_RE.finditer(tag_match.group(0))
         }
-        url = attributes.get("src", "")
+        candidates.append(
+            (tag_match.start(), attributes.get("src", ""), None, attributes)
+        )
+    candidates.sort(key=lambda item: item[0])
+
+    for _start, url, preview_url, attributes in candidates:
         if (
             not url.startswith(("https://", "http://"))
             or "/images/emoji/" in url
@@ -215,6 +251,8 @@ def merge_cooked_images(
             continue
         found += 1
         known.add(url)
+        if preview_url:
+            known.add(preview_url)
         if len(images) >= max(0, max_images):
             continue
         appended += 1
@@ -223,6 +261,7 @@ def merge_cooked_images(
             position=len(images) + 1,
             alt=alt.split("|")[0].strip()[:80],
             source_url=url,
+            preview_url=preview_url,
         )
         images.append(image)
         text, replaced = _UPLOAD_PLACEHOLDER_RE.subn(image.marker, text, count=1)
@@ -252,14 +291,14 @@ def clean_discourse_markdown(raw: str, max_chars: int) -> tuple[str, bool]:
         ),
         cleaned.text,
     )
-    return text, cleaned.truncated
+    return strip_bold_markers(text), cleaned.truncated
 
 
 def build_preview_text(preview: TopicPreview) -> str:
     truncation_note = "（内容已截断）" if preview.truncated else ""
     return (
         f"【{preview.title} · #{preview.topic_id}】{truncation_note}\n\n"
-        f"{preview.content}\n\n"
+        f"{strip_bold_markers(preview.content)}\n\n"
         f"原帖：{preview.canonical_url}"
     )
 

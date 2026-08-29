@@ -245,3 +245,29 @@ def test_merge_cooked_images_replaces_upload_placeholders_in_order():
     assert merged.text.index("前文") < merged.text.index(marker) < merged.text.index(
         "后文"
     )
+
+
+def test_merge_cooked_images_prefers_lightbox_original_over_optimized():
+    cleaned = clean_discourse_content("只有文字", max_chars=5000, max_images=6)
+    cooked = (
+        '<p><a class="lightbox" '
+        'href="https://cdn3.ldstatic.com/original/4X/a/b/c.jpeg">'
+        '<img src="https://cdn3.ldstatic.com/optimized/4X/a/b/c_690x388.jpeg" '
+        'alt="截图"></a></p>'
+        '<p><img src="https://cdn3.ldstatic.com/optimized/4X/d/e/f.jpeg"></p>'
+    )
+
+    merged = merge_cooked_images(cleaned, cooked, max_images=6)
+
+    assert len(merged.images) == 2
+    assert merged.images[0].source_url == (
+        "https://cdn3.ldstatic.com/original/4X/a/b/c.jpeg"
+    )
+    assert merged.images[0].preview_url == (
+        "https://cdn3.ldstatic.com/optimized/4X/a/b/c_690x388.jpeg"
+    )
+    assert merged.images[0].alt == "截图"
+    assert merged.images[1].source_url == (
+        "https://cdn3.ldstatic.com/optimized/4X/d/e/f.jpeg"
+    )
+    assert merged.images[1].preview_url is None
